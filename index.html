@@ -48,10 +48,10 @@
   UI LAYOUT (Output Card):
     1. Generated Palta title + Copy as Text
     2. Sound / Type / Brand / Reed / Left Coupler options
-    3. Playback bar (Beats, Tempo, Listen Both, Practice Both + reps picker, Loop)
+    3. Playback bar (Beats, Tempo, Listen Both, Practice Both + reps picker, Loop, Autoscroll)
     4. Include Avarohi checkbox (live toggle — shows/hides descending section)
     5. Pattern info
-    6. Aarohi (ascending) lines with Listen / Practice+reps / Loop / Skip controls
+    6. Aarohi (ascending) lines with Listen / Practice+reps / Loop / Autoscroll / Skip controls
     7. Avarohi (descending) lines (if enabled), same controls
     8. Legend (octave color coding)
 
@@ -190,7 +190,8 @@
          5. Output Card         — palta display, sound options, playback bar,
                                   include avarohi, legend
          6. Playback Controls   — listen/practice/stop buttons, tempo, beat selector,
-                                  blue highlight override for practice silent phase
+                                  blue highlight override for practice silent phase,
+                                  autoscroll checkbox styling (shared .autoscroll-cb class)
          7. MIDI Card           — MIDI connection, sound options, adj buttons
          8. Footer              — developer credit
          9. Responsive          — mobile breakpoint at 600px
@@ -1682,7 +1683,7 @@
                         </select>
                     </div>
                     <label class="repeat-label"><input type="checkbox" id="repeat-all"> Loop</label>
-                    <label class="repeat-label"><input type="checkbox" id="autoscroll-cb" checked> Autoscroll</label>
+                    <label class="repeat-label"><input type="checkbox" class="autoscroll-cb" checked> Autoscroll</label>
                 </div>
             </div>
             <div class="options" id="avarohi-option">
@@ -2269,6 +2270,16 @@
                 repeatLabel.appendChild(repeatCb);
                 repeatLabel.appendChild(document.createTextNode('Loop'));
                 controls.appendChild(repeatLabel);
+
+                const autoscrollLabel = document.createElement('label');
+                autoscrollLabel.className = 'repeat-label';
+                const autoscrollCb = document.createElement('input');
+                autoscrollCb.type = 'checkbox';
+                autoscrollCb.className = 'autoscroll-cb';
+                autoscrollCb.checked = autoscrollOn;
+                autoscrollLabel.appendChild(autoscrollCb);
+                autoscrollLabel.appendChild(document.createTextNode('Autoscroll'));
+                controls.appendChild(autoscrollLabel);
 
                 header.appendChild(controls);
                 return header;
@@ -3637,7 +3648,7 @@
                     swar.classList.add('playing');
                     const line = swar.closest('.palta-line');
                     if (line) line.classList.add('playing');
-                    if (document.getElementById('autoscroll-cb').checked)
+                    if (autoscrollOn)
                         swar.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 }
                 return;
@@ -3650,9 +3661,21 @@
                 swar.classList.add('playing');
                 const line = swar.closest('.palta-line');
                 if (line) line.classList.add('playing');
-                if (document.getElementById('autoscroll-cb').checked)
+                if (autoscrollOn)
                     swar.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             }
+        }
+
+        // ── Autoscroll state ────────────────────────────────────────────────────
+        // A single boolean controls whether highlightNote() calls scrollIntoView.
+        // Autoscroll checkboxes appear beside every Loop checkbox (main playback
+        // bar, Aarohi header, Avarohi header). All share the class .autoscroll-cb
+        // and are kept in sync via setAutoscroll() so toggling any one updates all.
+        let autoscrollOn = true;
+
+        function setAutoscroll(val) {
+            autoscrollOn = val;
+            document.querySelectorAll('.autoscroll-cb').forEach(cb => { cb.checked = val; });
         }
 
         // ── Playback state ──
@@ -5501,8 +5524,15 @@
             const id = cb.id;
             if (id === 'skip-intro-beats' || id === 'skip-transition-beats') onSkipCheckboxChange();
             else if (id === 'repeat-asc' || id === 'repeat-desc') onRepeatCheckboxChange();
+            else if (cb.classList.contains('autoscroll-cb')) setAutoscroll(cb.checked);
         });
         document.getElementById('repeat-all').addEventListener('change', onRepeatCheckboxChange);
+
+        // Autoscroll checkbox in the main playback bar — section header ones are handled
+        // by the output-lines delegated listener above so they all call setAutoscroll().
+        document.querySelector('.play-controls .autoscroll-cb').addEventListener('change', (e) => {
+            setAutoscroll(e.target.checked);
+        });
 
         // Tempo: keep slider and input in sync
         document.getElementById('tempo-slider').addEventListener('input', (e) => {
