@@ -1,6 +1,6 @@
 <!--
   ============================================================================
-  Riyaz
+  Palta-Alankar Riyaz
   by Muneer Ahmed Shaik
   ============================================================================
   A single-page web app for Hindustani classical music riyaz (practice).
@@ -52,7 +52,7 @@
     4. Common patterns       — 12 palta presets (repetitions, ascending, direction changes)
     5. Special patterns      — scale, SR/SG pairs, RS/GS pairs, expanding
     6. My patterns           — user's custom saved patterns
-    7. Custom text input     — "Generate all lines of a palta from the first sequence"
+    7. Custom text input     — enter first line of the palta to generate all lines
     8. Generate button
 
   UI LAYOUT (Output Card):
@@ -189,7 +189,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Riyaz by Muneer Ahmed</title>
+    <title>Palta-Alankar Riyaz</title>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <!-- ================================================================
          CSS: All styles are inline. Organized into these sections:
@@ -1475,9 +1475,8 @@
     <div class="container">
         <!-- ── 1. Header ──────────────────────────────────── -->
         <header>
-            <h1>Riyaz</h1>
+            <h1>Palta-Alankar Riyaz</h1>
             <p class="subtitle">by Muneer Ahmed</p>
-            <p class="subtitle">Generate all lines of a palta from the first sequence</p>
         </header>
 
         <!-- ── 2. Input Card ───────────────────────────────── -->
@@ -2628,7 +2627,7 @@
             try {
                 navigator.mediaSession.metadata = new MediaMetadata({
                     title: title || 'Practice',
-                    artist: artist || 'Riyaz by Muneer Ahmed',
+                    artist: artist || 'Palta-Alankar Riyaz by Muneer Ahmed',
                     album: 'Hindustani Practice',
                 });
                 navigator.mediaSession.playbackState = 'playing';
