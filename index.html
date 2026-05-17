@@ -1682,6 +1682,7 @@
                         </select>
                     </div>
                     <label class="repeat-label"><input type="checkbox" id="repeat-all"> Loop</label>
+                    <label class="repeat-label"><input type="checkbox" id="autoscroll-cb" checked> Autoscroll</label>
                 </div>
             </div>
             <div class="options" id="avarohi-option">
@@ -3636,7 +3637,8 @@
                     swar.classList.add('playing');
                     const line = swar.closest('.palta-line');
                     if (line) line.classList.add('playing');
-                    swar.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    if (document.getElementById('autoscroll-cb').checked)
+                        swar.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 }
                 return;
             }
@@ -3648,7 +3650,8 @@
                 swar.classList.add('playing');
                 const line = swar.closest('.palta-line');
                 if (line) line.classList.add('playing');
-                swar.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                if (document.getElementById('autoscroll-cb').checked)
+                    swar.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             }
         }
 
