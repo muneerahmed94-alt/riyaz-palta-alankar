@@ -37,8 +37,8 @@
     2. Swara Selector        — chromatic piano keyboard with fixed Western note labels
                                 (C–B) and movable swara labels that shift with Sa =
     3. Tanpura               — drone with "Use samples" toggle (default on):
-                                Sample mode: volume only; streams all-12-key recordings
-                                Synth mode:  strings, pitch, volume, tempo, jawari
+                                Sample mode: no extra controls (volume in mixer)
+                                Synth mode:  strings, pitch, tempo, jawari (volume in mixer)
     4. Common patterns       — 12 palta presets (repetitions, ascending, direction changes)
     5. Special patterns      — scale, SR/SG pairs, RS/GS pairs, expanding
     6. My patterns           — user's custom saved patterns
@@ -49,6 +49,7 @@
     1. Generated Palta title + Copy as Text
     2. Sound / Type / Brand / Reed / Left Coupler options
     3. Playback bar (Beats, Tempo, Listen Both, Practice Both + reps picker, Loop, Autoscroll)
+    3a. Volume Mixer (Palta + Tanpura sliders, always visible below the playback bar)
     4. Include Avarohi checkbox (live toggle — shows/hides descending section)
     5. Pattern info
     6. Aarohi (ascending) lines with Listen / Practice+reps / Loop / Autoscroll / Skip controls
@@ -560,6 +561,25 @@
 
         .swara-key-black .key-note-label {
             font-size: 0.55rem;
+        }
+
+        .volume-mixer {
+            display: flex;
+            align-items: center;
+            gap: 1.2rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+            padding: 0.55rem 0.9rem;
+            background: #fdf3e7;
+            border: 1px solid #e8d5c0;
+            border-radius: 8px;
+        }
+
+        .volume-mixer-label {
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: #bf360c;
+            white-space: nowrap;
         }
 
         .options {
@@ -1497,15 +1517,11 @@
                         <button class="tanpura-toggle" id="tanpura-toggle">Start</button>
                     </div>
                 </div>
-                <!-- Sample mode: volume only -->
+                <!-- Sample mode: no controls beyond the header -->
                 <div class="tanpura-controls" id="tanpura-sample-controls">
-                    <label class="tanpura-slider-label">
-                        Volume&nbsp;
-                        <input type="range" class="tanpura-slider" id="tanpura-volume" min="0" max="100" value="50">
-                    </label>
                     <span class="tanpura-sample-note" id="tanpura-sample-note"></span>
                 </div>
-                <!-- Synth mode: all controls -->
+                <!-- Synth mode: strings, pitch, tempo, jawari (no volume — in mixer) -->
                 <div id="tanpura-synth-controls" style="display:none">
                     <div class="tanpura-controls">
                         <label>
@@ -1527,10 +1543,6 @@
                         </label>
                     </div>
                     <div class="tanpura-controls">
-                        <label class="tanpura-slider-label">
-                            Volume&nbsp;
-                            <input type="range" class="tanpura-slider" id="tanpura-volume-synth" min="0" max="100" value="50">
-                        </label>
                         <label class="tanpura-slider-label">
                             Tempo&nbsp;
                             <input type="range" class="tanpura-slider" id="tanpura-tempo" min="30" max="120" value="60">
@@ -1685,6 +1697,17 @@
                     <label class="repeat-label"><input type="checkbox" id="repeat-all"> Loop</label>
                     <label class="repeat-label"><input type="checkbox" class="autoscroll-cb" checked> Autoscroll</label>
                 </div>
+            </div>
+            <div class="volume-mixer">
+                <span class="volume-mixer-label">Volume</span>
+                <label class="tanpura-slider-label">
+                    Palta&nbsp;
+                    <input type="range" class="tanpura-slider" id="mixer-volume-palta" min="0" max="100" value="100">
+                </label>
+                <label class="tanpura-slider-label">
+                    Tanpura&nbsp;
+                    <input type="range" class="tanpura-slider" id="mixer-volume-tanpura" min="0" max="100" value="50">
+                </label>
             </div>
             <div class="options" id="avarohi-option">
                 <label>
@@ -3852,6 +3875,7 @@
                 const entry = _mediaPlayers.get('palta');
                 if (!entry) return;
                 entry.el.loop = repeatOn;
+                entry.el.volume = Math.max(0, Math.min(1, parseInt(document.getElementById('mixer-volume-palta').value) / 100));
 
                 // If the tanpura is already playing, delay the palta
                 // start so its first note lands on a tanpura cycle
@@ -4054,6 +4078,7 @@
                 const entry = _mediaPlayers.get('palta');
                 if (!entry) return;
                 entry.el.loop = repeatOn;
+                entry.el.volume = Math.max(0, Math.min(1, parseInt(document.getElementById('mixer-volume-palta').value) / 100));
 
                 if (tanpuraState && tanpuraState.isPlaying &&
                     typeof tanpuraState.msUntilNextCycle === 'function') {
@@ -4793,7 +4818,7 @@
 
             const entry = ensureMediaPlayer('tanpura');
             entry.el.loop = true;
-            const vol = parseInt(document.getElementById('tanpura-volume-synth').value) / 100;
+            const vol = parseInt(document.getElementById('mixer-volume-tanpura').value) / 100;
             entry.el.volume = Math.max(0, Math.min(1, vol));
 
             // If the palta is already playing, delay the tanpura start
@@ -5153,7 +5178,7 @@
 
             const entry = ensureMediaPlayer('tanpura');
             entry.el.loop = true;
-            const vol = parseInt(document.getElementById('tanpura-volume').value) / 100;
+            const vol = parseInt(document.getElementById('mixer-volume-tanpura').value) / 100;
             entry.el.volume = Math.max(0, Math.min(1, vol));
 
             // Remove any old blob URL and point directly at the remote MP3.
@@ -5197,20 +5222,19 @@
         document.getElementById('tanpura-use-sample').addEventListener('change', onTanpuraUseSampleChange);
 
         // Volume sliders — apply live without re-rendering.
-        document.getElementById('tanpura-volume').addEventListener('input', () => {
+        // Volume mixer — apply live to the respective <audio> element.
+        document.getElementById('mixer-volume-tanpura').addEventListener('input', () => {
             if (!tanpuraState || !tanpuraState.isPlaying) return;
             const entry = _mediaPlayers.get('tanpura');
             if (!entry) return;
-            const vol = parseInt(document.getElementById('tanpura-volume').value) / 100;
-            entry.el.volume = Math.max(0, Math.min(1, vol));
+            entry.el.volume = Math.max(0, Math.min(1, parseInt(document.getElementById('mixer-volume-tanpura').value) / 100));
         });
 
-        document.getElementById('tanpura-volume-synth').addEventListener('input', () => {
-            if (!tanpuraState || !tanpuraState.isPlaying) return;
-            const entry = _mediaPlayers.get('tanpura');
+        document.getElementById('mixer-volume-palta').addEventListener('input', () => {
+            if (!playbackState) return;
+            const entry = _mediaPlayers.get('palta');
             if (!entry) return;
-            const vol = parseInt(document.getElementById('tanpura-volume-synth').value) / 100;
-            entry.el.volume = Math.max(0, Math.min(1, vol));
+            entry.el.volume = Math.max(0, Math.min(1, parseInt(document.getElementById('mixer-volume-palta').value) / 100));
         });
 
         document.getElementById('generate-btn').addEventListener('click', doGenerate);
