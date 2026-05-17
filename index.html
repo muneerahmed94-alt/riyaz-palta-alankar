@@ -5629,9 +5629,29 @@
             if (currentParsedNotes) {
                 reRenderPalta();
             }
-            // Clear any stale tanpura sample note text when the key changes.
+            // Clear any stale tanpura sample note text.
             const noteEl = document.getElementById('tanpura-sample-note');
             if (noteEl) noteEl.textContent = '';
+
+            // Stop and restart palta playback on the new Sa.
+            if (playbackState && playbackState.liveParams) {
+                const lp = playbackState.liveParams;
+                const triggerBtn = activePlayBtn;
+                const mode = lp.mode;
+                const isPractice = lp.isPractice;
+                stopPlayback();
+                if (triggerBtn) {
+                    if (isPractice) startPracticePlayback(mode, triggerBtn);
+                    else startPlayback(mode, triggerBtn);
+                }
+            }
+
+            // Stop and restart tanpura on the new Sa.
+            if (tanpuraState && tanpuraState.isPlaying) {
+                stopTanpura();
+                const useSample = document.getElementById('tanpura-use-sample').checked;
+                if (useSample) startTanpuraSample(); else startTanpura();
+            }
         });
 
         // ── Swara Selector — piano key click handler ─────────
