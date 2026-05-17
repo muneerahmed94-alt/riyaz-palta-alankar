@@ -4258,7 +4258,7 @@
                 compressor.knee.value = 20;
                 compressor.ratio.value = 4;
                 compressor.connect(offDest);
-                const { key, onsetInterval, noteDuration, instrument, pianoType, reedType, brand, leftCoupler } = ip;
+                const { key, onsetInterval, noteDuration, instrument, pianoType, pianoSamples, reedType, brand, leftCoupler } = ip;
                 for (let i = 0; i < timeline.length; i++) {
                     const ev = timeline[i];
                     const evTime = i * onsetInterval;
@@ -4273,7 +4273,7 @@
                         if (instrument === 'harmonium') {
                             const reverb = getHarmoniumReverbBus(offCtx, compressor);
                             createHarmoniumNote(offCtx, reverb.input, freq, evTime, noteDuration, reedType, leftCoupler, false, brand);
-                        } else if (ip.pianoSamples) {
+                        } else if (pianoSamples) {
                             renderPianoSampleNote(offCtx, compressor, freq, evTime, noteDuration, leftCoupler);
                         } else {
                             createPianoNote(offCtx, compressor, freq, evTime, noteDuration, pianoType, leftCoupler, false);
@@ -4301,7 +4301,7 @@
         }
 
         function renderPaltaTimelineOnContext(ctx, dest, timeline, ip) {
-            const { key, onsetInterval, noteDuration, instrument, pianoType, reedType, brand, leftCoupler } = ip;
+            const { key, onsetInterval, noteDuration, instrument, pianoType, pianoSamples, reedType, brand, leftCoupler } = ip;
             for (let i = 0; i < timeline.length; i++) {
                 const ev = timeline[i];
                 const evTime = i * onsetInterval;
@@ -4312,6 +4312,8 @@
                     if (instrument === 'harmonium') {
                         const reverb = getHarmoniumReverbBus(ctx, dest);
                         createHarmoniumNote(ctx, reverb.input, freq, evTime, noteDuration, reedType, leftCoupler, false, brand);
+                    } else if (pianoSamples) {
+                        renderPianoSampleNote(ctx, dest, freq, evTime, noteDuration, leftCoupler);
                     } else {
                         createPianoNote(ctx, dest, freq, evTime, noteDuration, pianoType, leftCoupler, false);
                     }
