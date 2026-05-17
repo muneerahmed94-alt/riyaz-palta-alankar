@@ -139,14 +139,9 @@
   See generateSpecialPalta() and doGenerateSpecial() in JS.
 
   SOUND SYNTHESIS:
-  - Piano: Two modes selected by a "Use samples" checkbox (default on):
-      Sample mode — streams Salamander Grand Piano samples from
-        tonejs.github.io/audio/salamander/. Samples every 3 semitones
-        (A, C, D#, F# per octave, A1–A7); notes in between are pitch-shifted
-        via AudioBufferSourceNode.playbackRate. Samples are decoded once and
-        cached globally. Works for both palta playback and MIDI keyboard.
-      Synth mode  — additive synthesis with inharmonicity, hammer noise, body
-        resonance. Three variants: Grand, Upright, Electric/Rhodes.
+  - Piano: Additive synthesis with inharmonicity modeling, hammer noise, body
+    resonance. Three variants: Grand (rich sustain), Upright (boxy, shorter
+    decay), Electric/Rhodes (FM synthesis with tremolo).
   - Harmonium: Source-filter synthesis after Puranik & Scavone (DAFx 2023).
     Reed source is a PeriodicWave built from a 32-partial LTAS measured from
     real Indian hand harmoniums. All reeds share a per-brand cabinet filter
@@ -1645,11 +1640,7 @@
                         <option value="harmonium">Harmonium</option>
                     </select>
                 </label>
-                <label class="piano-only visible tanpura-sample-label" id="piano-sample-label" style="margin-right:0.2rem">
-                    <input type="checkbox" id="piano-use-sample" checked>
-                    Use samples
-                </label>
-                <label class="piano-only visible" id="piano-type-label" style="display:none">
+                <label class="piano-only visible" id="piano-type-label">
                     Type&nbsp;
                     <select class="reed-select" id="piano-type-select">
                         <option value="grand" selected>Grand Piano</option>
@@ -2749,106 +2740,6 @@
             return KEY_BASE_FREQ[key] * Math.pow(2, semitones / 12);
         }
 
-        // ── Piano sample system ──────────────────────────────────────────────────
-        // Salamander Grand Piano samples from tonejs.github.io/audio/salamander/.
-        // Sampled every 3 semitones; notes in between are pitch-shifted via
-        // AudioBufferSourceNode.playbackRate. Samples are decoded and cached in
-        // _pianoSampleCache keyed by note name so re-renders don't re-fetch.
-        //
-        // Naming: natural notes = "C4", sharps = "Ds4" (D-sharp = Eb), etc.
-        // The set below covers the full range palta uses (roughly A1–C7).
-
-        const PIANO_SAMPLE_BASE = 'https://tonejs.github.io/audio/salamander/';
-
-        // Note name → frequency for each sampled note.
-        const PIANO_SAMPLES = (() => {
-            const notes = ['A','C','Ds','Fs'];  // every 3 semitones: A, C, D#, F#
-            const noteToSemitone = { C:0, Cs:1, D:2, Ds:3, E:4, F:5, Fs:6, G:7, Gs:8, A:9, As:10, B:11 };
-            const A4 = 440;
-            const result = [];
-            // Octaves 1–7, notes A C Ds Fs per octave
-            for (const octave of [1,2,3,4,5,6,7]) {
-                for (const note of notes) {
-                    const semitone = noteToSemitone[note];
-                    // Semitones from A4: (octave-4)*12 + (semitone - 9)
-                    const diff = (octave - 4) * 12 + (semitone - 9);
-                    const freq = A4 * Math.pow(2, diff / 12);
-                    result.push({ name: note + octave, freq });
-                }
-            }
-            return result; // [{name:'A1', freq:55.00}, ...]
-        })();
-
-        // Cache stores raw ArrayBuffers (not decoded AudioBuffers) so they can
-        // be decoded inside any AudioContext — live or offline. Cross-context
-        // AudioBuffer reuse is unreliable on Safari/iOS.
-        const _pianoSampleRawCache = new Map(); // name → ArrayBuffer
-
-        async function fetchPianoSample(name) {
-            if (_pianoSampleRawCache.has(name)) return _pianoSampleRawCache.get(name);
-            const url = PIANO_SAMPLE_BASE + name + '.mp3';
-            const resp = await fetch(url);
-            if (!resp.ok) throw new Error('Piano sample fetch failed: ' + name);
-            const arrayBuf = await resp.arrayBuffer();
-            _pianoSampleRawCache.set(name, arrayBuf);
-            return arrayBuf;
-        }
-
-        // Fetch all samples. Called before renderPaltaBuffer so the offline
-        // render has all raw ArrayBuffers ready to decode synchronously... except
-        // decodeAudioData is async. So instead we decode all samples into a
-        // shared standard AudioContext first, and store the resulting AudioBuffers.
-        const _pianoSampleCache = new Map(); // name → AudioBuffer (decoded in _pianoDecodeCtx)
-        let _pianoDecodeCtx = null;
-
-        async function preloadPianoSamples() {
-            if (!_pianoDecodeCtx || _pianoDecodeCtx.state === 'closed') {
-                _pianoDecodeCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
-            }
-            await Promise.all(PIANO_SAMPLES.map(async s => {
-                if (_pianoSampleCache.has(s.name)) return;
-                try {
-                    const arrayBuf = await fetchPianoSample(s.name);
-                    // decodeAudioData consumes the buffer — must slice a copy
-                    const buf = await _pianoDecodeCtx.decodeAudioData(arrayBuf.slice(0));
-                    _pianoSampleCache.set(s.name, buf);
-                } catch (e) {
-                    console.warn('Piano sample load failed:', s.name, e);
-                }
-            }));
-        }
-
-        // Find the nearest sampled note to `freq` and schedule it pitch-shifted.
-        // cache is either _pianoSampleCache (live ctx) or ip._offlineCache (offline ctx).
-        function renderPianoSampleNote(offCtx, dest, freq, startTime, duration, leftCoupler, cache) {
-            cache = cache || _pianoSampleCache;
-            let best = PIANO_SAMPLES[0], bestDiff = Infinity;
-            for (const s of PIANO_SAMPLES) {
-                const d = Math.abs(Math.log2(freq / s.freq));
-                if (d < bestDiff) { bestDiff = d; best = s; }
-            }
-            const buf = cache.get(best.name);
-            if (!buf) return; // sample not loaded — skip silently
-
-            function scheduleOne(targetFreq) {
-                const src = offCtx.createBufferSource();
-                src.buffer = buf;
-                src.playbackRate.value = targetFreq / best.freq;
-                // Gentle release: ramp the gain to 0 over the last 20% of duration
-                const gain = offCtx.createGain();
-                gain.gain.setValueAtTime(1, startTime);
-                const releaseStart = startTime + duration * 0.8;
-                gain.gain.linearRampToValueAtTime(0, startTime + duration + 0.3);
-                src.connect(gain);
-                gain.connect(dest);
-                src.start(startTime);
-                src.stop(startTime + duration + 0.35);
-            }
-
-            scheduleOne(freq);
-            if (leftCoupler) scheduleOne(freq * 0.5);
-        }
-
         // ── Piano dispatcher ─────────────────────────────
         function createPianoNote(audioCtx, dest, freq, startTime, duration, pianoType, leftCoupler, rightCoupler) {
             let createFn;
@@ -3846,7 +3737,6 @@
             const skipTransCb = document.getElementById('skip-transition-beats');
             const instrument = document.getElementById('sound-select').value;
             const pianoType = document.getElementById('piano-type-select').value;
-            const pianoSamples = instrument === 'piano' && document.getElementById('piano-use-sample').checked;
             const reedType = document.getElementById('reed-select').value;
             const brandEl = document.getElementById('brand-select');
             const brand = brandEl ? brandEl.value : 'paul-co';
@@ -3859,7 +3749,6 @@
                 skipTransitionBeats: skipTransCb ? skipTransCb.checked : false,
                 instrument,
                 pianoType,
-                pianoSamples,
                 reedType,
                 brand,
                 leftCoupler,
@@ -4158,7 +4047,6 @@
                 noteDuration: p.instrument === 'harmonium' ? 60 / p.tempo : Math.max((60 / p.tempo) * 2, 0.45),
                 instrument: p.instrument,
                 pianoType: p.pianoType,
-                pianoSamples: p.pianoSamples,
                 reedType: p.reedType,
                 brand: p.brand,
                 leftCoupler: p.leftCoupler,
@@ -4268,33 +4156,13 @@
         // slots produce no audio (the time slot passes in silence so the WAV
         // duration matches the full timeline and the highlight stays in sync).
         async function renderPracticeBuffer(sampleRate, timeline, ip, renderSec) {
-            if (ip.pianoSamples) await preloadPianoSamples();
-            // Re-decode samples inside the offline context (same reason as renderPaltaBuffer).
-            let offlineCache = _pianoSampleCache;
-            const length = Math.max(1, Math.ceil(renderSec * sampleRate));
-            const offCtxOuter = ip.pianoSamples
-                ? new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, length, sampleRate)
-                : null;
-            if (offCtxOuter) {
-                offlineCache = new Map();
-                await Promise.all(PIANO_SAMPLES.map(async s => {
-                    const raw = _pianoSampleRawCache.get(s.name);
-                    if (!raw) return;
-                    try {
-                        const buf = await offCtxOuter.decodeAudioData(raw.slice(0));
-                        offlineCache.set(s.name, buf);
-                    } catch (e) { /* skip */ }
-                }));
-            }
-            const ipWithCache = { ...ip, _offlineCache: offlineCache };
-
-            const doRender = (offCtx, offDest) => {
+            return await renderToBuffer(sampleRate, renderSec, 1, (offCtx, offDest) => {
                 const compressor = offCtx.createDynamicsCompressor();
                 compressor.threshold.value = -20;
                 compressor.knee.value = 20;
                 compressor.ratio.value = 4;
                 compressor.connect(offDest);
-                const { key, onsetInterval, noteDuration, instrument, pianoType, pianoSamples, reedType, brand, leftCoupler } = ipWithCache;
+                const { key, onsetInterval, noteDuration, instrument, pianoType, reedType, brand, leftCoupler } = ip;
                 for (let i = 0; i < timeline.length; i++) {
                     const ev = timeline[i];
                     const evTime = i * onsetInterval;
@@ -4309,20 +4177,12 @@
                         if (instrument === 'harmonium') {
                             const reverb = getHarmoniumReverbBus(offCtx, compressor);
                             createHarmoniumNote(offCtx, reverb.input, freq, evTime, noteDuration, reedType, leftCoupler, false, brand);
-                        } else if (pianoSamples) {
-                            renderPianoSampleNote(offCtx, compressor, freq, evTime, noteDuration, leftCoupler, offlineCache);
                         } else {
                             createPianoNote(offCtx, compressor, freq, evTime, noteDuration, pianoType, leftCoupler, false);
                         }
                     }
                 }
-            };
-
-            if (offCtxOuter) {
-                doRender(offCtxOuter, offCtxOuter.destination);
-                return await offCtxOuter.startRendering();
-            }
-            return await renderToBuffer(sampleRate, renderSec, 1, doRender);
+            });
         }
 
         // Render one full palta iteration (plus tail) offline. Returns the
@@ -4331,32 +4191,10 @@
         // WAV. Mono output — half the blob size, and palta is already
         // mono musically (one instrument, no stereo imaging).
         async function renderPaltaBuffer(sampleRate, timeline, ip, renderSec) {
-            if (ip.pianoSamples) {
-                await preloadPianoSamples();
-                // Re-decode all samples inside the OfflineAudioContext so
-                // AudioBuffers are native to that context (avoids cross-context
-                // compatibility issues on Safari/iOS).
-                const offCtx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(
-                    1, Math.max(1, Math.ceil(renderSec * sampleRate)), sampleRate
-                );
-                const offlineCache = new Map();
-                await Promise.all(PIANO_SAMPLES.map(async s => {
-                    const raw = _pianoSampleRawCache.get(s.name);
-                    if (!raw) return;
-                    try {
-                        const buf = await offCtx.decodeAudioData(raw.slice(0));
-                        offlineCache.set(s.name, buf);
-                    } catch (e) { /* skip */ }
-                }));
-                const compressor = offCtx.createDynamicsCompressor();
-                compressor.threshold.value = -20;
-                compressor.knee.value = 20;
-                compressor.ratio.value = 4;
-                compressor.connect(offCtx.destination);
-                renderPaltaTimelineOnContext(offCtx, compressor, timeline, { ...ip, _offlineCache: offlineCache });
-                return await offCtx.startRendering();
-            }
             return await renderToBuffer(sampleRate, renderSec, 1, (offCtx, offDest) => {
+                // Same compressor profile the live scheduler used — keeps
+                // peaks in check when multiple harmonium notes/reverb tails
+                // overlap in a loop.
                 const compressor = offCtx.createDynamicsCompressor();
                 compressor.threshold.value = -20;
                 compressor.knee.value = 20;
@@ -4367,8 +4205,7 @@
         }
 
         function renderPaltaTimelineOnContext(ctx, dest, timeline, ip) {
-            const { key, onsetInterval, noteDuration, instrument, pianoType, pianoSamples, reedType, brand, leftCoupler } = ip;
-            const sampleCache = ip._offlineCache || _pianoSampleCache;
+            const { key, onsetInterval, noteDuration, instrument, pianoType, reedType, brand, leftCoupler } = ip;
             for (let i = 0; i < timeline.length; i++) {
                 const ev = timeline[i];
                 const evTime = i * onsetInterval;
@@ -4379,8 +4216,6 @@
                     if (instrument === 'harmonium') {
                         const reverb = getHarmoniumReverbBus(ctx, dest);
                         createHarmoniumNote(ctx, reverb.input, freq, evTime, noteDuration, reedType, leftCoupler, false, brand);
-                    } else if (pianoSamples) {
-                        renderPianoSampleNote(ctx, dest, freq, evTime, noteDuration, leftCoupler, sampleCache);
                     } else {
                         createPianoNote(ctx, dest, freq, evTime, noteDuration, pianoType, leftCoupler, false);
                     }
@@ -5778,13 +5613,6 @@
 
         document.getElementById('piano-type-select').addEventListener('change', updateCouplerDefault);
 
-        // Piano "Use samples" toggle — show/hide the Type selector.
-        function onPianoUseSampleChange() {
-            const useSample = document.getElementById('piano-use-sample').checked;
-            document.getElementById('piano-type-label').style.display = useSample ? 'none' : '';
-        }
-        document.getElementById('piano-use-sample').addEventListener('change', onPianoUseSampleChange);
-
         // Re-render when beat count changes (updates the beat line display)
         document.getElementById('beat-select').addEventListener('change', () => {
             const input = document.getElementById('sequence-input').value;
@@ -6034,35 +5862,9 @@
                 oscillators = createHarmoniumNote(midiAudioCtx, masterGain, freq, now, 30, params.reedType, params.leftCoupler, params.rightCoupler, params.brand);
             } else {
                 masterGain.connect(midiCompressor);
+                // Register-dependent duration: bass ~3.2s, middle ~1.6s, treble ~0.7s
                 const pianoDur = Math.max(0.6, 3.6 * Math.pow(0.98, adjustedNote - 21));
-                if (document.getElementById('piano-use-sample').checked && params.instrument === 'piano') {
-                    // Load sample asynchronously — fine for MIDI since there's ~1 frame before the note.
-                    const sampleNote = PIANO_SAMPLES.reduce((best, s) =>
-                        Math.abs(Math.log2(freq / s.freq)) < Math.abs(Math.log2(freq / best.freq)) ? s : best
-                    );
-                    loadPianoSample(sampleNote.name).then(buf => {
-                        if (!midiActiveNotes.has(note)) return;
-                        const src = midiAudioCtx.createBufferSource();
-                        src.buffer = buf;
-                        src.playbackRate.value = freq / sampleNote.freq;
-                        src.connect(masterGain);
-                        src.start(midiAudioCtx.currentTime);
-                        src.stop(midiAudioCtx.currentTime + pianoDur + 0.35);
-                        if (params.leftCoupler) {
-                            const src2 = midiAudioCtx.createBufferSource();
-                            src2.buffer = buf;
-                            src2.playbackRate.value = (freq * 0.5) / sampleNote.freq;
-                            src2.connect(masterGain);
-                            src2.start(midiAudioCtx.currentTime);
-                            src2.stop(midiAudioCtx.currentTime + pianoDur + 0.35);
-                        }
-                    }).catch(() => {
-                        oscillators = createPianoNote(midiAudioCtx, masterGain, freq, now, pianoDur, params.pianoType, params.leftCoupler, params.rightCoupler);
-                    });
-                    oscillators = [];
-                } else {
-                    oscillators = createPianoNote(midiAudioCtx, masterGain, freq, now, pianoDur, params.pianoType, params.leftCoupler, params.rightCoupler);
-                }
+                oscillators = createPianoNote(midiAudioCtx, masterGain, freq, now, pianoDur, params.pianoType, params.leftCoupler, params.rightCoupler);
             }
 
             // Register-dependent damper: bass damps slower (~180ms), treble faster (~60ms)
