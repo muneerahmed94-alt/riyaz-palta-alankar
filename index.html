@@ -1,24 +1,32 @@
 <!--
   ============================================================================
-  Palta Alankar Maker
-  Developed by Muneer Ahmed Shaik
+  Riyaz
+  by Muneer Ahmed Shaik
   ============================================================================
-  A single-page web app for Indian classical music practice.
+  A single-page web app for Hindustani classical music riyaz (practice).
   Hosted at: https://muneerahmed94-alt.github.io/palta-alankar-maker/
 
   WHAT IT DOES:
   - Takes the first line of a palta/alankar (e.g. "Sa Re Ga Ma") and generates
-    all 7 ascending (aarohi) and 7 descending (avarohi) lines automatically.
-  - Plays back the generated palta using synthesized Piano or Harmonium sounds
-    (Listen mode: full audio playback with orange highlight).
-  - Practice mode: each line plays audio (orange highlight) then metronome-only
-    (blue highlight) for the student to repeat after, as many times as selected
-    in the reps picker (1–10, default 2). Loop checkbox works the same as Listen.
-  - Provides a tanpura drone with two modes: Sample (streams real recordings
-    for all 12 keys; courtesy Delhite Gurdeep / ksarpotdar/tanpura-online)
-    and Synth (additive synthesis with jawari bridge simulation, all 12 keys).
-  - Provides preset patterns (common, special, and custom "My patterns").
-  - Provides a MIDI keyboard interface to play along with the generated palta.
+    all ascending (aarohi) and descending (avarohi) lines automatically.
+  - Listen mode: plays back the full palta with Piano or Harmonium synthesis,
+    orange highlight tracks the current note.
+  - Practice mode: each line plays with full audio (orange highlight), then
+    replays with metronome-only audio (blue highlight) so the student can
+    sing or play along. A reps picker (×1–×10, default ×2) sets how many
+    audio+silent cycles each line receives. Loop and Skip work as in Listen.
+  - Tanpura drone with two modes:
+      Sample  — streams real recordings for all 12 keys (courtesy Delhite
+                Gurdeep / ksarpotdar/tanpura-online); no rendering wait.
+      Synth   — additive synthesis with jawari bridge simulation, all 12 keys.
+    Switching modes or changing Sa stops and restarts playback automatically.
+  - Volume Mixer in the output card: independent Palta and Tanpura sliders,
+    applied live without re-rendering.
+  - Autoscroll checkboxes (beside every Loop checkbox, all synced) let the
+    user freeze the page while the highlight still tracks the current note.
+  - Preset patterns: Common (12), Special (scale / sa-x / x-sa / sa-expand),
+    and custom "My patterns".
+  - MIDI keyboard interface (Web MIDI API) to play along.
 
   ARCHITECTURE (single-file, no build step):
   - CSS: All styles are inline in <style> (warm Indian-music-themed palette).
@@ -29,11 +37,13 @@
                                 (includes special pattern generator for SR/SG/... type)
         3. Renderer           — builds the DOM for the generated palta display
         4. Audio Engine       — Web Audio API synthesizers (3 piano types + harmonium)
-        5. Playback Engine    — Listen mode and Practice mode (per-line audio + repeat)
+        5. Playback Engine    — Listen and Practice modes; per-line audio + metronome
+                                repeat; Loop, Autoscroll, Volume Mixer integration
         6. MIDI Keyboard      — Web MIDI API for external keyboard input
 
   UI LAYOUT (Input Card, top to bottom):
-    1. Sa = key selector     — sets the root note (C through B)
+    1. Sa = key selector     — sets the root note (C through B); changing Sa while
+                                audio is playing stops and restarts on the new key
     2. Swara Selector        — chromatic piano keyboard with fixed Western note labels
                                 (C–B) and movable swara labels that shift with Sa =
     3. Tanpura               — drone with "Use samples" toggle (default on):
@@ -42,19 +52,19 @@
     4. Common patterns       — 12 palta presets (repetitions, ascending, direction changes)
     5. Special patterns      — scale, SR/SG pairs, RS/GS pairs, expanding
     6. My patterns           — user's custom saved patterns
-    7. Custom text input     — "Generate your own palta/alankar which starts with"
+    7. Custom text input     — "Generate all lines of a palta from the first sequence"
     8. Generate button
 
   UI LAYOUT (Output Card):
     1. Generated Palta title + Copy as Text
     2. Sound / Type / Brand / Reed / Left Coupler options
     3. Playback bar (Beats, Tempo, Listen Both, Practice Both + reps picker, Loop, Autoscroll)
-    3a. Volume Mixer (Palta + Tanpura sliders, always visible below the playback bar)
-    4. Include Avarohi checkbox (live toggle — shows/hides descending section)
-    5. Pattern info
-    6. Aarohi (ascending) lines with Listen / Practice+reps / Loop / Autoscroll / Skip controls
-    7. Avarohi (descending) lines (if enabled), same controls
-    8. Legend (octave color coding)
+    4. Volume Mixer (Palta + Tanpura sliders, always visible below the playback bar)
+    5. Include Avarohi checkbox (live toggle — shows/hides descending section)
+    6. Pattern info
+    7. Aarohi (ascending) lines with Listen / Practice+reps / Loop / Autoscroll / Skip controls
+    8. Avarohi (descending) lines (if enabled), same controls
+    9. Legend (octave colour coding)
 
   SWARA NUMBERING:
   Each swara is mapped to an integer:
@@ -143,7 +153,7 @@
     (~1.8 s tail) so notes decay into ambience, not silence. Six reed
     configurations from 2-reed to 4-reed combos.
   - Coupler: Left coupler adds lower octave, Right coupler adds upper octave.
-  Sound options are in the Output Card (after "Generated Palta" header).
+  Sound options are in the Output Card (after the "Generated Palta" title).
 
   MOBILE / BACKGROUND PLAYBACK (iOS lock-screen, Chrome backgrounded):
   - Both palta and tanpura are played through hidden <audio> elements
@@ -179,7 +189,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Palta Alankar Maker</title>
+    <title>Riyaz by Muneer Ahmed</title>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <!-- ================================================================
          CSS: All styles are inline. Organized into these sections:
@@ -230,6 +240,12 @@
             font-size: 1rem;
             color: #795548;
             font-weight: 300;
+        }
+
+        header .subtitle:first-of-type {
+            font-size: 0.85rem;
+            color: #a1887f;
+            margin-bottom: 0.15rem;
         }
 
         .card {
@@ -1459,7 +1475,8 @@
     <div class="container">
         <!-- ── 1. Header ──────────────────────────────────── -->
         <header>
-            <h1>Palta Alankar Maker</h1>
+            <h1>Riyaz</h1>
+            <p class="subtitle">by Muneer Ahmed</p>
             <p class="subtitle">Generate all lines of a palta from the first sequence</p>
         </header>
 
@@ -2611,7 +2628,7 @@
             try {
                 navigator.mediaSession.metadata = new MediaMetadata({
                     title: title || 'Practice',
-                    artist: artist || 'Palta Alankar Maker',
+                    artist: artist || 'Riyaz by Muneer Ahmed',
                     album: 'Hindustani Practice',
                 });
                 navigator.mediaSession.playbackState = 'playing';
@@ -3848,7 +3865,7 @@
             const primerBlob = makeSilencePrimer();
             loadAndPlayBlob('palta', primerBlob).catch(() => {});
 
-            setMediaSessionMetadata('Palta Playback', 'Palta Alankar Maker');
+            setMediaSessionMetadata('Palta Playback', 'Riyaz by Muneer Ahmed');
             setMediaSessionHandlers({
                 pause: () => stopPlayback(),
                 play:  () => {
@@ -4059,7 +4076,7 @@
 
             const primerBlob = makeSilencePrimer();
             loadAndPlayBlob('palta', primerBlob).catch(() => {});
-            setMediaSessionMetadata('Palta Practice', 'Palta Alankar Maker');
+            setMediaSessionMetadata('Palta Practice', 'Riyaz by Muneer Ahmed');
             setMediaSessionHandlers({
                 pause: () => stopPlayback(),
                 play: () => {
@@ -4720,7 +4737,7 @@
 
             const sampleRate = 44100;
 
-            setMediaSessionMetadata('Tanpura Drone', 'Palta Alankar Maker');
+            setMediaSessionMetadata('Tanpura Drone', 'Riyaz by Muneer Ahmed');
             setMediaSessionHandlers({
                 pause: () => stopTanpura(),
                 play:  () => {
@@ -5167,7 +5184,7 @@
             // Prime inside the user gesture so iOS allows the subsequent play().
             loadAndPlayBlob('tanpura', makeSilencePrimer()).catch(() => {});
 
-            setMediaSessionMetadata('Tanpura Drone', 'Palta Alankar Maker');
+            setMediaSessionMetadata('Tanpura Drone', 'Riyaz by Muneer Ahmed');
             setMediaSessionHandlers({
                 pause: () => stopTanpura(),
                 play:  () => {
