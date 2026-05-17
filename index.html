@@ -15,7 +15,7 @@
     (blue highlight) for the student to repeat after, as many times as selected
     in the reps picker (1–10, default 2). Loop checkbox works the same as Listen.
   - Provides a tanpura drone with two modes: Sample (streams real recordings
-    for Sa=C and Sa=C#; courtesy Delhite Gurdeep / ksarpotdar/tanpura-online)
+    for all 12 keys; courtesy Delhite Gurdeep / ksarpotdar/tanpura-online)
     and Synth (additive synthesis with jawari bridge simulation, all 12 keys).
   - Provides preset patterns (common, special, and custom "My patterns").
   - Provides a MIDI keyboard interface to play along with the generated palta.
@@ -37,7 +37,7 @@
     2. Swara Selector        — chromatic piano keyboard with fixed Western note labels
                                 (C–B) and movable swara labels that shift with Sa =
     3. Tanpura               — drone with "Use samples" toggle (default on):
-                                Sample mode: volume only; streams C/C# recordings
+                                Sample mode: volume only; streams all-12-key recordings
                                 Synth mode:  strings, pitch, volume, tempo, jawari
     4. Common patterns       — 12 palta presets (repetitions, ascending, direction changes)
     5. Special patterns      — scale, SR/SG pairs, RS/GS pairs, expanding
@@ -1789,7 +1789,8 @@
         //   4. AUDIO ENGINE        — Web Audio synthesis, dynamic SWARA_SEMITONES
         //   5. PLAYBACK ENGINE     — scheduled playback, doGenerate, doGenerateSpecial,
         //                            reRenderPalta, updateSwaraDisplayName
-        //   6. TANPURA ENGINE      — additive synthesis drone with jawari bridge simulation
+        //   6. TANPURA ENGINE      — sample mode (streams all-12-key real recordings) and
+        //                            synth mode (additive synthesis with jawari bridge simulation)
         //   7. MIDI KEYBOARD       — Web MIDI API for external keyboards
         //   EVENT LISTENERS        — UI wiring: presets, special presets, piano selector,
         //                            tanpura, include avarohi toggle, key-select, sound
@@ -4431,10 +4432,18 @@
 
         // ══════════════════════════════════════════════════════
         // ── TANPURA DRONE ENGINE ─────────────────────────────
-        // Synthesizes a tanpura drone using Web Audio API.
-        // Each string pluck: a sawtooth oscillator run through a bandpass filter
-        // (simulating the bridge/jawari buzz) and a gentle amplitude envelope.
-        // Strings are plucked in sequence on a repeating timer.
+        // Two modes selected by the "Use samples" checkbox:
+        //
+        // Sample mode (default): startTanpuraSample() streams a pre-recorded
+        //   MP3 directly from ksarpotdar/tanpura-online (courtesy Delhite Gurdeep).
+        //   All 12 keys are available. No offline render needed — the file is long
+        //   enough (~30–36 min) that looping is imperceptible. Only Volume is shown.
+        //
+        // Synth mode: startTanpura() renders a seamless looped WAV offline using
+        //   additive synthesis. Each string pluck is a sawtooth oscillator through
+        //   a bandpass filter (simulating the bridge/jawari buzz) with a gentle
+        //   amplitude envelope. Strings are plucked in sequence. Controls: Strings,
+        //   Pitch, Volume, Tempo, Jawari.
         // ══════════════════════════════════════════════════════
 
         let tanpuraState = null; // { audioCtx, gainNode, strings[], timer, isPlaying }
@@ -5074,10 +5083,21 @@
         });
         // ── Tanpura sample mode ──────────────────────────────────────────────────
         // Sample URLs from ksarpotdar/tanpura-online (courtesy Delhite Gurdeep).
-        // Only C and C# are available; any other Sa shows an inline error.
+        // All 12 keys are mapped to real recordings.
+        // Full chromatic set — courtesy Delhite Gurdeep / ksarpotdar/tanpura-online.
         const TANPURA_SAMPLE_URLS = {
             'C':  'https://raw.githubusercontent.com/ksarpotdar/tanpura-online/master/c.mp3',
             'C#': 'https://raw.githubusercontent.com/ksarpotdar/tanpura-online/master/csharp.mp3',
+            'D':  'https://raw.githubusercontent.com/ksarpotdar/tanpura-online/master/d.mp3',
+            'D#': 'https://raw.githubusercontent.com/ksarpotdar/tanpura-online/master/dsharp.mp3',
+            'E':  'https://raw.githubusercontent.com/ksarpotdar/tanpura-online/master/e.mp3',
+            'F':  'https://raw.githubusercontent.com/ksarpotdar/tanpura-online/master/f.mp3',
+            'F#': 'https://raw.githubusercontent.com/ksarpotdar/tanpura-online/master/fsharp.mp3',
+            'G':  'https://raw.githubusercontent.com/ksarpotdar/tanpura-online/master/g.mp3',
+            'G#': 'https://raw.githubusercontent.com/ksarpotdar/tanpura-online/master/gsharp.mp3',
+            'A':  'https://raw.githubusercontent.com/ksarpotdar/tanpura-online/master/a.mp3',
+            'A#': 'https://raw.githubusercontent.com/ksarpotdar/tanpura-online/master/asharp.mp3',
+            'B':  'https://raw.githubusercontent.com/ksarpotdar/tanpura-online/master/b.mp3',
         };
 
         async function startTanpuraSample() {
@@ -5086,10 +5106,7 @@
             const noteEl = document.getElementById('tanpura-sample-note');
             const toggleEl = document.getElementById('tanpura-toggle');
 
-            if (!url) {
-                noteEl.textContent = 'Samples only available for Sa = C or C#';
-                return;
-            }
+            if (!url) return; // should never happen — all 12 keys are mapped
             noteEl.textContent = '';
 
             toggleEl.textContent = 'Loading...';
@@ -5612,7 +5629,7 @@
             if (currentParsedNotes) {
                 reRenderPalta();
             }
-            // Clear the "samples only for C/C#" error when the key changes.
+            // Clear any stale tanpura sample note text when the key changes.
             const noteEl = document.getElementById('tanpura-sample-note');
             if (noteEl) noteEl.textContent = '';
         });
