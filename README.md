@@ -60,7 +60,7 @@ Three categories of preset patterns:
 - Enter swaras in any format: full names (`Sa Re Ga Ma`), short (`S R G M`), or continuous (`SRGM`)
 - Supports three octaves: lower (`.Sa`), middle (`Sa`), upper (`Sa'`)
 - Octave markers work as prefix or suffix: `.N`, `N.`, `'S`, `S'` all valid
-- **Nearest-octave auto-resolution**: When no octave marker is given, each note after the first is placed in the octave nearest to the previous note (e.g., `SNSN` becomes `S .N S .N` — N below Sa, not 6 steps above)
+- **Nearest-octave auto-resolution**: When no octave marker is given, each note after the first is placed in the octave nearest to the previous note (e.g., `SNSN` becomes `S .N S .N` — N below Sa, not 6 steps above). The **Select nearest note** checkbox (checked by default) enables this behaviour; uncheck it before clicking Generate to keep all unmarked notes in the middle octave exactly as typed
 - Continuous strings support embedded octave markers: `S.NS.NSRGM` parses correctly
 - **Preset patterns** auto-calculate line count so the melodic arc covers about one octave. Formula: `lineCount = 8 - lastOffset + max(0, -minOffset)`, where `lastOffset` is the pattern's last note relative to its first and `minOffset` is the lowest note relative to its first. Examples: SS = 8 lines, SR = 7, SRGm = 5, SRGmPD = 3; SGSR = 7, ending N R' N S'; S.NR.NRGmG = 7 (one extra line because the pattern dips to `.N`), ending N D S' D S' R' G' R'
 - **Custom text input** uses a fixed 7 lines
@@ -163,7 +163,7 @@ Converts user input text into numeric note values (0–20 across three octaves).
 - `parseSwara()` — Parses a single token. Returns `{ value, isShort, explicitOctave }`. The `explicitOctave` flag tracks whether the user provided `.` or `'` markers. Supports markers as prefix OR suffix.
 - `trySplitContinuous()` — Tokenizes continuous strings like `S.NS.NSRGM` into individual swara tokens with attached octave markers.
 - `nearestOctave()` — For notes without explicit octave markers, finds the octave placement (lower/middle/upper) that is closest to the previous note.
-- `parseSequence()` — Two-phase parsing: (1) tokenize all swaras, (2) apply nearest-octave resolution for unmarked notes. First note always defaults to middle octave if unmarked.
+- `parseSequence(input, useNearestOctave)` — Two-phase parsing: (1) tokenize all swaras, (2) apply nearest-octave resolution for unmarked notes when `useNearestOctave=true` (default); pass `false` to keep all unmarked notes in their default middle-octave placement. The flag is wired to the **Select nearest note** checkbox in the UI. First note always defaults to middle octave if unmarked regardless of the flag.
 
 **Display name system:**
 - `SWARAS_FULL` / `SWARAS_SHORT` — Immutable constants for input parsing (case-insensitive).
@@ -213,7 +213,7 @@ Palta playback uses the offline-render + `<audio>`-element pattern so it keeps p
 - Visual highlights are driven by `requestAnimationFrame` via `startHighlightLoop()` with two strategies: **repeat mode** uses `audio.currentTime % iterationSec` (self-correcting — no drift accumulates across iterations); **single-shot** uses a wall-clock timer anchored to the `'playing'` event (avoids iOS Safari reporting `currentTime` ahead of actual speaker output on large single-shot WAVs). `iterationSec` is computed from the exact WAV sample count (`shaped.length / sampleRate`) so the modulo boundary aligns perfectly with the loop point.
 
 **Key functions:**
-- `doGenerate()` — Parses input, generates palta, renders, sets tempo to 102 BPM. Auto-corrects input text to reflect swara variants.
+- `doGenerate()` — Reads the **Select nearest note** checkbox, parses input (passing the flag to `parseSequence`), generates palta, renders, sets tempo to 102 BPM. Auto-corrects input text to reflect swara variants.
 - `doGenerateSpecial(type)` — Generates special patterns (sa-x or x-sa), sets tempo to 60 BPM.
 - `reRenderPalta()` — Re-generates and re-renders the current palta (handles both standard and special via `currentSpecialType` flag). Called when swara variants, include avarohi, or line counts change.
 - `updateSwaraDisplayName()` — Updates display name arrays when a variant is toggled. Handles the special Ma convention (Shuddh=lowercase, Teevra=uppercase).

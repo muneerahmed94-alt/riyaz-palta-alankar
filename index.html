@@ -119,6 +119,8 @@
   natural input like "SNSN" to produce "S .N S .N" (N below Sa) instead of
   "S N S N" (N six steps above Sa). Explicit markers always take precedence.
   See nearestOctave() and the explicitOctave flag in parseSwara().
+  The "Select nearest note" checkbox (checked by default) controls this behaviour;
+  unchecking it makes all unmarked swaras default to the middle octave as typed.
 
   OCTAVE MARKER FLEXIBILITY:
   Octave markers can be placed before OR after a swara token:
@@ -641,6 +643,29 @@
 
         .generate-btn:active {
             transform: translateY(0);
+        }
+
+        .generate-row {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .nearest-label {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.9rem;
+            color: #555;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .nearest-label input[type="checkbox"] {
+            accent-color: #bf360c;
+            width: 1rem;
+            height: 1rem;
+            cursor: pointer;
         }
 
         /* ── 3. Output Card ────────────────────────────────── */
@@ -1619,7 +1644,13 @@
                 </div>
             </div>
 
-            <button class="generate-btn" id="generate-btn">Generate</button>
+            <div class="generate-row">
+                <button class="generate-btn" id="generate-btn">Generate</button>
+                <label class="nearest-label">
+                    <input type="checkbox" id="nearest-note-cb" checked>
+                    Select nearest note
+                </label>
+            </div>
 
             <div id="error-container"></div>
         </div>
@@ -1997,9 +2028,11 @@
         // ── Parse full input sequence ───────────────────────
         // Two-phase parsing:
         //   Phase 1: Tokenize and parse each swara to { value, isShort, explicitOctave }.
-        //   Phase 2: Apply nearest-octave resolution for swaras without explicit markers.
+        //   Phase 2: Apply nearest-octave resolution for swaras without explicit markers
+        //            (only when useNearestOctave=true; false keeps middle-octave defaults).
         // The first note always keeps its parsed octave (defaults to middle if unmarked).
-        function parseSequence(input) {
+        // useNearestOctave is wired to the "Select nearest note" checkbox in the UI.
+        function parseSequence(input, useNearestOctave = true) {
             const tokens = input.trim().split(/[\s,]+/).filter(t => t.length > 0);
             if (tokens.length === 0) {
                 return { error: 'Please enter at least one swara.' };
@@ -2036,7 +2069,7 @@
             const notes = [];
             for (let i = 0; i < parsedList.length; i++) {
                 const p = parsedList[i];
-                if (p.explicitOctave || i === 0) {
+                if (p.explicitOctave || i === 0 || !useNearestOctave) {
                     notes.push(p.value);
                 } else {
                     const idx = p.value % 7;
@@ -4318,7 +4351,8 @@
                 return;
             }
 
-            const parsed = parseSequence(input);
+            const useNearest = document.getElementById('nearest-note-cb').checked;
+            const parsed = parseSequence(input, useNearest);
             if (parsed.error) {
                 errorContainer.innerHTML = `<div class="error-msg">${parsed.error}</div>`;
                 return;
