@@ -143,16 +143,13 @@ palta-alankar-maker/
 The app is a single `index.html` file with no external dependencies (except Google Fonts). Everything runs client-side in the browser.
 
 ### CSS (inline `<style>`)
-Organized into 9 sections:
-1. **Base / Layout** — body, container, header, cards
-2. **Input Card** — form elements, preset chip buttons
-3. **Swara Selector** — chromatic piano keyboard with white/black keys, swara labels, note labels, selection states, fixed key styling
-4. **Tanpura Controls** — drone section with start/stop, tuning selects, volume/tempo/jawari sliders
-5. **Output Card** — palta line display, direction headers, add/delete buttons
-6. **Playback Controls** — key/sound/beat selectors, tempo slider, play/stop buttons
-7. **MIDI Card** — connection UI, sound options, octave/transpose adjustment buttons
-8. **Footer** — developer credit
-9. **Responsive** — mobile breakpoint at 600px (piano keys, tanpura controls scale for mobile)
+Organized into 6 sections:
+1. **Base / Layout** — body, container, header, cards; vintage parchment palette (Lora serif headings, warm ochre/saffron tones)
+2. **Input Card** — form elements, preset chip buttons, generate row, lines stepper, nearest-note checkbox; sub-sections: Tanpura Controls (drone, sample/synth modes, sliders) and Swara Selector (chromatic piano keyboard, white/black keys, swara labels)
+3. **Output Card** — palta line display, sound options, playback bar, include avarohi, volume mixer, legend
+4. **Playback Controls** — listen/practice/stop buttons, tempo, beat selector, autoscroll checkbox (`.autoscroll-cb`), blue highlight override for practice silent phase
+5. **MIDI Card + Footer** — MIDI connection UI, sound options, octave/transpose buttons; footer colophon styles
+6. **Responsive** — mobile breakpoint ≤ 600px (optimized for iPhone 14 at 390px)
 
 ### JavaScript (inline `<script>`)
 Seven subsystems + event listeners:
@@ -255,10 +252,13 @@ envelopes are shaped to match the acoustic features of a real tanpura:
 Uses `navigator.requestMIDIAccess()` to connect to external keyboards. Each note-on creates synth oscillators wrapped in a per-note `masterGain` node. On note-off, the masterGain is faded to zero (simulating a damper). The Map `midiActiveNotes` tracks all sounding notes for cleanup.
 
 #### Event Listeners
-- **Preset buttons** (common patterns) — Set input text and call `doGenerate()`.
-- **Special preset buttons** — Call `doGenerateSpecial()` with the pattern type.
+- **Preset buttons** (common patterns) — Set input text, hide the nearest-note checkbox, and call `doGenerate()`.
+- **Special preset buttons** — Hide the nearest-note checkbox and call `doGenerateSpecial()` with the pattern type.
+- **Sequence input (`input` event)** — Show the nearest-note checkbox, update the suggested line count via `updateSuggestedLines()`.
+- **Nearest-note checkbox (`change`)** — Re-runs `updateSuggestedLines()` so line count reflects the new parse mode.
+- **Lines stepper (−/+)** — Decrement/increment the lines input within [1, 20].
 - **Tanpura** — Start/stop toggle, auto-restarts on tuning/pitch change. Volume/tempo/jawari sliders update live.
-- **Swara Selector piano** — `updatePianoSwaraLabels()` places swara labels on correct chromatic keys based on Sa=. Click handler toggles variants and re-renders.
+- **Swara Selector piano** — `updatePianoSwaraLabels()` places swara labels on correct chromatic keys based on Sa=. Click handler toggles variants, re-renders preset labels, re-renders the sequence input text (display name only, no nearest-octave), and re-renders the palta if one is displayed.
 - **Key selector** (Sa=) — Updates piano swara labels and re-renders if a palta is displayed.
 - **Include Avarohi** — Live toggle that re-generates the palta to show/hide descending section.
 - **Sound/instrument options** — Show/hide piano-only and harmonium-only controls.
