@@ -54,13 +54,14 @@ Three categories of preset patterns:
 - Default tempo: 60 BPM for sa-x/x-sa/expanding, 102 BPM for scale
 
 **My patterns** — Custom saved patterns:
-- Sa Ga Sa Re, Sa Re Ga ma Sa Ga Re ma, Sa Re Re Sa Re Ga Re Sa, Sa .Ni Re .Ni Re Ga ma Ga, Sa Pa Ma Ga Re Sa Re Ga (6 lines)
+- Sa Ga Sa Re (6 lines), Sa Re Ga ma Sa Ga Re ma, Sa Re Re Sa Re Ga Re Sa (7 lines), Sa .Ni Re .Ni Re Ga ma Ga (7 lines), Sa Pa ma Ga Re Sa Re Ga (6 lines)
 
 ### Palta Generation
 - Enter swaras in any format: full names (`Sa Re Ga Ma`), short (`S R G M`), or continuous (`SRGM`)
 - Supports three octaves: lower (`.Sa`), middle (`Sa`), upper (`Sa'`)
 - Octave markers work as prefix or suffix: `.N`, `N.`, `'S`, `S'` all valid
-- **Nearest-octave auto-resolution**: When no octave marker is given, each note after the first is placed in the octave nearest to the previous note (e.g., `SNSN` becomes `S .N S .N` — N below Sa, not 6 steps above). The **Select nearest note** checkbox (checked by default) enables this behaviour; uncheck it before clicking Generate to keep all unmarked notes in the middle octave exactly as typed
+- **Nearest-octave auto-resolution**: When no octave marker is given, each note after the first is placed in the octave nearest to the previous note (e.g., `SNSN` becomes `S .N S .N` — N below Sa, not 6 steps above). The **Select nearest note** checkbox (checked by default) enables this behaviour; uncheck it before clicking Generate to keep all unmarked notes in the middle octave exactly as typed. The checkbox is hidden when a preset is clicked and reappears when the user edits the text field manually. Presets always parse without nearest-octave regardless of the checkbox
+- When the Swara Selector piano variant changes (e.g. `m` → `M`), the sequence input text is updated to reflect the new display name without re-resolving octave placement
 - Continuous strings support embedded octave markers: `S.NS.NSRGM` parses correctly
 - **Lines stepper** (− / number / +) sits below the Generate button and shows the suggested line count based on the current input. Updates live as you type or toggle the "Select nearest note" checkbox. You can adjust it freely before clicking Generate. For presets, the formula (or `data-lines` pin) writes the suggested value into the stepper. For custom input, Generate reads the stepper value directly
 - **Line count formula**: `lineCount = clamp(1, 7, 8 - maxOffset + max(0, -minOffset))`, where `maxOffset` is the highest note in the pattern relative to the first and `minOffset` is the lowest. Using `maxOffset` keeps non-monotonic/descending patterns from producing unrealistic counts. Examples: SR = 7, SRGm = 5, SGSR = 7, S.NR.NRGmG = 7 (dip adds 1), SPMGRSRG = 6 (pinned via `data-lines`)

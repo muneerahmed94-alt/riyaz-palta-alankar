@@ -99,7 +99,11 @@
   arrays, updated by updateSwaraDisplayName() when the Swara Selector changes.
   On Generate, the input text field auto-corrects to match the selected variants.
   All preset button labels (common, special, my patterns) also update dynamically
-  via updatePresetLabels() when swara variants are toggled.
+  via updatePresetLabels() when swara variants are toggled, and also on page load
+  so the labels always match the default shuddh state.
+  When the piano selector changes, the sequence input field is also re-rendered
+  to reflect the updated display name (e.g. m → M), always without nearest-octave
+  resolution so only the swara name changes, not the octave placement.
 
   LINE COUNT (Lines stepper):
   A Lines stepper (− / number / +) in the input card lets the user see and
@@ -128,6 +132,10 @@
   See nearestOctave() and the explicitOctave flag in parseSwara().
   The "Select nearest note" checkbox (checked by default) controls this behaviour;
   unchecking it makes all unmarked swaras default to the middle octave as typed.
+  The checkbox is hidden when a preset is clicked (presets carry explicit markers
+  and don't need it) and shown again when the user types in the sequence field.
+  Nearest-octave is never applied when re-rendering the sequence input on piano
+  variant changes or in updatePresetLabels() — only display names change there.
 
   OCTAVE MARKER FLEXIBILITY:
   Octave markers can be placed before OR after a swara token:
@@ -1696,11 +1704,11 @@
             <div class="presets">
                 <div class="presets-label">My patterns:</div>
                 <div class="preset-chips">
-                    <button class="preset-btn" data-pattern="SGSR">Sa Ga Sa Re</button>
+                    <button class="preset-btn" data-pattern="SGSR" data-lines="6">Sa Ga Sa Re</button>
                     <button class="preset-btn" data-pattern="SRGmSGRm">Sa Re Ga ma Sa Ga Re ma</button>
                     <button class="preset-btn" data-pattern="SRRSRGRS" data-lines="7">Sa Re Re Sa Re Ga Re Sa</button>
-                    <button class="preset-btn" data-pattern="S.NR.NRGmG">Sa .Ni Re .Ni Re Ga ma Ga</button>
-                    <button class="preset-btn" data-pattern="SPMGRSRG" data-lines="6">Sa Pa Ma Ga Re Sa Re Ga</button>
+                    <button class="preset-btn" data-pattern="S.NR.NRGmG" data-lines="7">Sa .Ni Re .Ni Re Ga ma Ga</button>
+                    <button class="preset-btn" data-pattern="SPmGRSRG" data-lines="6">Sa Pa ma Ga Re Sa Re Ga</button>
                 </div>
             </div>
 
@@ -1717,7 +1725,7 @@
             <div class="generate-row">
                 <button class="generate-btn" id="generate-btn">Generate</button>
                 <div class="generate-options">
-                    <label class="nearest-label">
+                    <label class="nearest-label" id="nearest-label">
                         <input type="checkbox" id="nearest-note-cb" checked>
                         Select nearest note
                     </label>
@@ -5192,7 +5200,7 @@
         function updatePresetLabels() {
             const d = SWARAS_FULL_DISPLAY;
             document.querySelectorAll('.preset-btn[data-pattern]').forEach(btn => {
-                const parsed = parseSequence(btn.dataset.pattern);
+                const parsed = parseSequence(btn.dataset.pattern, false);
                 if (!parsed.error) {
                     btn.textContent = parsed.notes.map(n => numToSwara(n, false).text).join(' ');
                 }
@@ -5384,7 +5392,10 @@
             if (!parsed.error) setLinesInput(computeSuggestedLines(parsed.notes));
         }
 
-        document.getElementById('sequence-input').addEventListener('input', updateSuggestedLines);
+        document.getElementById('sequence-input').addEventListener('input', () => {
+            document.getElementById('nearest-label').style.display = '';
+            updateSuggestedLines();
+        });
         document.getElementById('nearest-note-cb').addEventListener('change', updateSuggestedLines);
 
         document.getElementById('lines-dec').addEventListener('click', () => {
@@ -5404,6 +5415,7 @@
         document.querySelectorAll('.preset-btn:not(.special-preset-btn)').forEach(btn => {
             btn.addEventListener('click', () => {
                 document.getElementById('sequence-input').value = btn.dataset.pattern;
+                document.getElementById('nearest-label').style.display = 'none';
                 const forcedLines = btn.dataset.lines ? parseInt(btn.dataset.lines, 10) : null;
                 doGenerate(true, forcedLines);
             });
@@ -5412,6 +5424,7 @@
         // Special preset buttons (SR SG... / RS GS...)
         document.querySelectorAll('.special-preset-btn').forEach(btn => {
             btn.addEventListener('click', () => {
+                document.getElementById('nearest-label').style.display = 'none';
                 doGenerateSpecial(btn.dataset.special);
             });
         });
@@ -5834,6 +5847,7 @@
             }
         }
         updatePianoSwaraLabels();
+        updatePresetLabels();
 
         document.getElementById('key-select').addEventListener('change', () => {
             updatePianoSwaraLabels();
@@ -5890,6 +5904,17 @@
 
             updatePianoSwaraLabels();
             updatePresetLabels();
+
+            // Re-render the sequence input text to reflect the new swara variant.
+            // Always parse without nearest-octave here — we're only updating display
+            // names, not re-resolving octave placement.
+            const seqEl = document.getElementById('sequence-input');
+            if (seqEl.value.trim()) {
+                const reParsed = parseSequence(seqEl.value, false);
+                if (!reParsed.error) {
+                    seqEl.value = reParsed.notes.map(n => numToSwara(n, reParsed.useShort).text).join(' ');
+                }
+            }
 
             if (currentParsedNotes) {
                 reRenderPalta();
