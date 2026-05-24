@@ -1,8 +1,8 @@
-# Palta Alankar Maker
+# Riyaz - Palta/Alankar
 
 A web-based tool for Indian classical music practice. Enter the first line of a palta (alankar) and the app generates all ascending and descending lines automatically, with playback using synthesized Piano or Harmonium sounds. Includes a tanpura drone for practice and a MIDI keyboard interface for playing along.
 
-**Live app:** https://muneerahmed94-alt.github.io/palta-alankar-maker/
+**Live app:** https://muneerahmed94-alt.github.io/riyaz-palta-alankar/
 
 Developed by Muneer Ahmed Shaik.
 
@@ -133,7 +133,7 @@ Caveats:
 ## Project Structure
 
 ```
-palta-alankar-maker/
+riyaz-palta-alankar/
   index.html    — Entire app (HTML + CSS + JS in a single file, no build step)
   README.md     — This file
 ```
