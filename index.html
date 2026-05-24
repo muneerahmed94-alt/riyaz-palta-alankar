@@ -31,7 +31,7 @@
   ARCHITECTURE (single-file, no build step):
   - CSS: All styles are inline in <style> (warm Indian-music-themed palette).
   - HTML: Three card sections — Input, Output, MIDI Keyboard.
-  - JS:  Six subsystems, in order:
+  - JS:  Seven subsystems, in order:
         1. Swara Parser      — converts text input ("Sa Re Ga") to numeric note values
         2. Palta Generator    — generates ascending/descending lines from a pattern
                                 (includes special pattern generator for SR/SG/... type)
@@ -115,7 +115,7 @@
   where maxOffset is the highest note in the pattern relative to the first, and
   minOffset is the lowest. Using maxOffset (not lastOffset) keeps non-monotonic
   and descending patterns like SPMGRSRG from producing absurd counts.
-  Examples: SR=7, SRGm=5, SGSR=7, SPMGRSRG=4 (auto), overridden to 6 via
+  Examples: SR=7, SRGm=5, SGSR=7, SPmGRSRG=4 (auto), overridden to 6 via
   data-lines. The dip term adds extra lines for patterns that visit notes below
   Sa (S.NR.NRGmG → dip=1 → 7 lines).
 
@@ -4522,10 +4522,10 @@
             // lines input so the user can see and adjust it before the next
             // generate. For custom input the lines input value is used directly.
             //
-            // Formula: lineCount = 8 - lastOffset + max(0, -minOffset)
-            //   lastOffset — how many swara-steps above the first note the
-            //     pattern ends. We want the last line to land around Sa'.
-            //   dip — patterns that start by dipping below Sa need extra lines
+            // Formula: lineCount = clamp(1, 7, 8 - maxOffset + max(0, -minOffset))
+            //   maxOffset — highest note in the pattern relative to the first.
+            //     We want the last line to land around Sa'.
+            //   dip — patterns that visit notes below Sa need extra lines
             //     so the overall arc still reaches the upper register.
             if (isPreset) {
                 let computed;
@@ -4673,7 +4673,7 @@
         }
 
         // ══════════════════════════════════════════════════════
-        // ── TANPURA DRONE ENGINE ─────────────────────────────
+        // ── 6. TANPURA DRONE ENGINE ──────────────────────────
         // Two modes selected by the "Use samples" checkbox:
         //
         // Sample mode (default): startTanpuraSample() streams a pre-recorded
@@ -5980,7 +5980,7 @@
         });
 
         // ══════════════════════════════════════════════════════
-        // ── 6. MIDI KEYBOARD ─────────────────────────────────
+        // ── 7. MIDI KEYBOARD ─────────────────────────────────
         // Connects to external MIDI keyboards via the Web MIDI API.
         //
         // Architecture:

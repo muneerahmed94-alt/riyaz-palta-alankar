@@ -64,7 +64,7 @@ Three categories of preset patterns:
 - When the Swara Selector piano variant changes (e.g. `m` → `M`), the sequence input text is updated to reflect the new display name without re-resolving octave placement
 - Continuous strings support embedded octave markers: `S.NS.NSRGM` parses correctly
 - **Lines stepper** (− / number / +) sits below the Generate button and shows the suggested line count based on the current input. Updates live as you type or toggle the "Select nearest note" checkbox. You can adjust it freely before clicking Generate. For presets, the formula (or `data-lines` pin) writes the suggested value into the stepper. For custom input, Generate reads the stepper value directly
-- **Line count formula**: `lineCount = clamp(1, 7, 8 - maxOffset + max(0, -minOffset))`, where `maxOffset` is the highest note in the pattern relative to the first and `minOffset` is the lowest. Using `maxOffset` keeps non-monotonic/descending patterns from producing unrealistic counts. Examples: SR = 7, SRGm = 5, SGSR = 7, S.NR.NRGmG = 7 (dip adds 1), SPMGRSRG = 6 (pinned via `data-lines`)
+- **Line count formula**: `lineCount = clamp(1, 7, 8 - maxOffset + max(0, -minOffset))`, where `maxOffset` is the highest note in the pattern relative to the first and `minOffset` is the lowest. Using `maxOffset` keeps non-monotonic/descending patterns from producing unrealistic counts. Examples: SR = 7, SRGm = 5, SGSR = 7, S.NR.NRGmG = 7 (dip adds 1), SPmGRSRG = 6 (pinned via `data-lines`)
 - **Include Avarohi** checkbox in output card — live toggle to show/hide descending section
 - Add or remove lines with +/- buttons on the last line after generation
 - Copy generated palta as plain text
