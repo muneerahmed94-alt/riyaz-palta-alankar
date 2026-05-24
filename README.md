@@ -54,7 +54,7 @@ Three categories of preset patterns:
 - Default tempo: 60 BPM for sa-x/x-sa/expanding, 102 BPM for scale
 
 **My patterns** — Custom saved patterns:
-- Sa Ga Sa Re, Sa Re Ga ma Sa Ga Re ma, Sa Re Re Sa Re Ga Re Sa, Sa .Ni Re .Ni Re Ga ma Ga
+- Sa Ga Sa Re, Sa Re Ga ma Sa Ga Re ma, Sa Re Re Sa Re Ga Re Sa, Sa .Ni Re .Ni Re Ga ma Ga, Sa Pa Ma Ga Re Sa Re Ga (6 lines)
 
 ### Palta Generation
 - Enter swaras in any format: full names (`Sa Re Ga Ma`), short (`S R G M`), or continuous (`SRGM`)
@@ -62,10 +62,10 @@ Three categories of preset patterns:
 - Octave markers work as prefix or suffix: `.N`, `N.`, `'S`, `S'` all valid
 - **Nearest-octave auto-resolution**: When no octave marker is given, each note after the first is placed in the octave nearest to the previous note (e.g., `SNSN` becomes `S .N S .N` — N below Sa, not 6 steps above). The **Select nearest note** checkbox (checked by default) enables this behaviour; uncheck it before clicking Generate to keep all unmarked notes in the middle octave exactly as typed
 - Continuous strings support embedded octave markers: `S.NS.NSRGM` parses correctly
-- **Preset patterns** auto-calculate line count so the melodic arc covers about one octave. Formula: `lineCount = 8 - lastOffset + max(0, -minOffset)`, where `lastOffset` is the pattern's last note relative to its first and `minOffset` is the lowest note relative to its first. Examples: SS = 8 lines, SR = 7, SRGm = 5, SRGmPD = 3; SGSR = 7, ending N R' N S'; S.NR.NRGmG = 7 (one extra line because the pattern dips to `.N`), ending N D S' D S' R' G' R'
-- **Custom text input** uses a fixed 7 lines
+- **Lines stepper** (− / number / +) sits below the Generate button and shows the suggested line count based on the current input. Updates live as you type or toggle the "Select nearest note" checkbox. You can adjust it freely before clicking Generate. For presets, the formula (or `data-lines` pin) writes the suggested value into the stepper. For custom input, Generate reads the stepper value directly
+- **Line count formula**: `lineCount = clamp(1, 7, 8 - maxOffset + max(0, -minOffset))`, where `maxOffset` is the highest note in the pattern relative to the first and `minOffset` is the lowest. Using `maxOffset` keeps non-monotonic/descending patterns from producing unrealistic counts. Examples: SR = 7, SRGm = 5, SGSR = 7, S.NR.NRGmG = 7 (dip adds 1), SPMGRSRG = 6 (pinned via `data-lines`)
 - **Include Avarohi** checkbox in output card — live toggle to show/hide descending section
-- Add or remove lines with +/- buttons on the last line
+- Add or remove lines with +/- buttons on the last line after generation
 - Copy generated palta as plain text
 
 ### Sound Engine (Web Audio API, no samples)
