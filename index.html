@@ -4448,7 +4448,9 @@
                 return;
             }
 
-            const useNearest = document.getElementById('nearest-note-cb').checked;
+            // Presets carry explicit octave markers where needed — nearest-octave
+            // resolution is only for the free-text input where the user may omit them.
+            const useNearest = isPreset ? false : document.getElementById('nearest-note-cb').checked;
             const parsed = parseSequence(input, useNearest);
             if (parsed.error) {
                 errorContainer.innerHTML = `<div class="error-msg">${parsed.error}</div>`;
