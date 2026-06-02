@@ -3875,7 +3875,9 @@
         //   CSS class) to signal it's the user's turn to sing or play along.
         //   A reps picker (×1/×3/×5/×10/×15/×20/×25/×30, default ×3) controls how many audio+silent
         //   cycles each line receives. Loop and Skip checkboxes work the same as
-        //   Listen mode.
+        //   Listen mode. For reps>1 the per-block render path (renderPaltaPerBlock
+        //   with isPractice=true) renders each unique line and silent-block once
+        //   and assembles via overlap-add, matching the Listen optimization.
         // ══════════════════════════════════════════════════════
 
         function buildAscTimeline(palta, beatCount, skipIntroBeats, reps) {
@@ -4352,7 +4354,11 @@
                 },
             });
 
-            renderPracticeBuffer(sampleRate, tl, ip, renderSec).then(async (buffer) => {
+            const practiceRenderPromise = reps > 1
+                ? renderPaltaPerBlock(sampleRate, currentPaltaData, p, ip, mode, reps, true).then(r => r.buffer)
+                : renderPracticeBuffer(sampleRate, tl, ip, renderSec);
+
+            practiceRenderPromise.then(async (buffer) => {
                 if (!playbackState || playbackState.mediaName !== 'palta') return;
 
                 const shaped = repeatOn
@@ -4454,55 +4460,60 @@
 
         // Render a palta iteration (plus tail) by rendering each unique
         // block (line / beat group) once and assembling the destination
-        // buffer in JS via overlap-add. Cuts wait time when listenReps>1
-        // since identical lines are not re-synthesized for every rep.
-        // Lines that happen to have identical note content also share a
-        // single render. Reverb tails from each block bleed into the next
+        // buffer in JS via overlap-add. Cuts wait time when reps>1 since
+        // identical lines are not re-synthesized for every rep. Lines
+        // that happen to have identical note content also share a single
+        // render. Reverb tails from each block bleed into the next
         // block's destination region the same way they would in a single
         // full offline render.
-        async function renderPaltaPerBlock(sampleRate, palta, p, ip, mode, listenReps) {
+        //
+        // isPractice=true adds a silent "metronome only" block after each
+        // line-audio block, mirroring the doubled practice timeline.
+        async function renderPaltaPerBlock(sampleRate, palta, p, ip, mode, reps, isPractice) {
             const onsetInterval = ip.onsetInterval;
             const tailSec = ip.instrument === 'harmonium' ? 2.4 : 0.8;
 
             // Build the destination block list. Each block has a content
             // key for dedupe, a slot count, and the dest slot it lands at.
+            // Practice mode "silent" blocks are flagged so the renderer
+            // emits only metronome clicks (no instrument).
             const blocks = [];
             let destSlot = 0;
             const includeAsc = (mode === 'all' || mode === 'asc');
             const includeDesc = (mode === 'all' || mode === 'desc') && palta.descending && palta.descending.length > 0;
 
+            function pushLine(line, sectionKey) {
+                const audioEvents = line.map((noteNum) => ({ type: 'note', noteNum }));
+                const audioKey = sectionKey + ':' + line.join(',');
+                const silentKey = 'silent:' + line.length;
+                for (let r = 0; r < reps; r++) {
+                    blocks.push({ key: audioKey, events: audioEvents, slotCount: line.length, destSlot, kind: 'audio' });
+                    destSlot += line.length;
+                    if (isPractice) {
+                        blocks.push({ key: silentKey, slotCount: line.length, destSlot, kind: 'silent' });
+                        destSlot += line.length;
+                    }
+                }
+            }
+
             if (includeAsc) {
                 if (!p.skipIntroBeats && p.beatCount > 0) {
                     const events = [];
                     for (let i = 0; i < p.beatCount; i++) events.push({ type: 'beat' });
-                    blocks.push({ key: 'beat-intro', events, slotCount: p.beatCount, destSlot });
+                    blocks.push({ key: 'beat-intro', events, slotCount: p.beatCount, destSlot, kind: 'audio' });
                     destSlot += p.beatCount;
                 }
-                palta.ascending.forEach((line) => {
-                    const events = line.map((noteNum) => ({ type: 'note', noteNum }));
-                    const key = 'asc:' + line.join(',');
-                    for (let r = 0; r < listenReps; r++) {
-                        blocks.push({ key, events, slotCount: line.length, destSlot });
-                        destSlot += line.length;
-                    }
-                });
+                palta.ascending.forEach((line) => pushLine(line, 'asc'));
             }
 
             if (includeDesc) {
                 if (!p.skipTransitionBeats && p.beatCount > 0) {
                     const events = [];
                     for (let i = 0; i < p.beatCount; i++) events.push({ type: 'beat' });
-                    blocks.push({ key: 'beat-transition', events, slotCount: p.beatCount, destSlot });
+                    blocks.push({ key: 'beat-transition', events, slotCount: p.beatCount, destSlot, kind: 'audio' });
                     destSlot += p.beatCount;
                 }
-                palta.descending.forEach((line) => {
-                    const events = line.map((noteNum) => ({ type: 'note', noteNum }));
-                    const key = 'desc:' + line.join(',');
-                    for (let r = 0; r < listenReps; r++) {
-                        blocks.push({ key, events, slotCount: line.length, destSlot });
-                        destSlot += line.length;
-                    }
-                });
+                palta.descending.forEach((line) => pushLine(line, 'desc'));
             }
 
             const totalSlots = destSlot;
@@ -4520,9 +4531,19 @@
             }
             for (const b of uniqueBlocks) {
                 const blockSec = b.slotCount * onsetInterval;
-                const renderSec = blockSec + tailSec;
-                const buf = await renderPaltaBuffer(sampleRate, b.events, ip, renderSec);
-                renderedMap.set(b.key, buf);
+                if (b.kind === 'silent') {
+                    // Silent block: just metronome clicks per slot, no
+                    // instrument. Tail is irrelevant (clicks have no
+                    // decay) so render exactly the block duration.
+                    const events = [];
+                    for (let i = 0; i < b.slotCount; i++) events.push({ type: 'beat' });
+                    const buf = await renderPaltaBuffer(sampleRate, events, ip, blockSec);
+                    renderedMap.set(b.key, buf);
+                } else {
+                    const renderSec = blockSec + tailSec;
+                    const buf = await renderPaltaBuffer(sampleRate, b.events, ip, renderSec);
+                    renderedMap.set(b.key, buf);
+                }
             }
 
             // Assemble destination buffer via overlap-add.
