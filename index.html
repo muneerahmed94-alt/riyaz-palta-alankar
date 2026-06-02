@@ -4145,7 +4145,11 @@
             const repeatCbEarly = document.getElementById(repeatId);
             const repeatOn = !!(repeatCbEarly && repeatCbEarly.checked);
 
-            renderPaltaBuffer(sampleRate, tl, ip, renderSec).then(async (buffer) => {
+            const renderPromise = listenReps > 1
+                ? renderPaltaPerBlock(sampleRate, currentPaltaData, p, ip, mode, listenReps).then(r => r.buffer)
+                : renderPaltaBuffer(sampleRate, tl, ip, renderSec);
+
+            renderPromise.then(async (buffer) => {
                 if (!playbackState || playbackState.mediaName !== 'palta') return;
 
                 const shaped = repeatOn
@@ -4448,6 +4452,112 @@
                     }
                 }
             });
+        }
+
+        // Render a palta iteration (plus tail) by rendering each unique
+        // block (line / beat group) once and assembling the destination
+        // buffer in JS via overlap-add. Cuts wait time when listenReps>1
+        // since identical lines are not re-synthesized for every rep.
+        // Lines that happen to have identical note content also share a
+        // single render. Reverb tails from each block bleed into the next
+        // block's destination region the same way they would in a single
+        // full offline render.
+        async function renderPaltaPerBlock(sampleRate, palta, p, ip, mode, listenReps) {
+            const onsetInterval = ip.onsetInterval;
+            const tailSec = ip.instrument === 'harmonium' ? 2.4 : 0.8;
+
+            // Build the destination block list. Each block has a content
+            // key for dedupe, a slot count, and the dest slot it lands at.
+            const blocks = [];
+            let destSlot = 0;
+            const includeAsc = (mode === 'all' || mode === 'asc');
+            const includeDesc = (mode === 'all' || mode === 'desc') && palta.descending && palta.descending.length > 0;
+
+            if (includeAsc) {
+                if (!p.skipIntroBeats && p.beatCount > 0) {
+                    const events = [];
+                    for (let i = 0; i < p.beatCount; i++) events.push({ type: 'beat' });
+                    blocks.push({ key: 'beat-intro', events, slotCount: p.beatCount, destSlot });
+                    destSlot += p.beatCount;
+                }
+                palta.ascending.forEach((line) => {
+                    const events = line.map((noteNum) => ({ type: 'note', noteNum }));
+                    const key = 'asc:' + line.join(',');
+                    for (let r = 0; r < listenReps; r++) {
+                        blocks.push({ key, events, slotCount: line.length, destSlot });
+                        destSlot += line.length;
+                    }
+                });
+            }
+
+            if (includeDesc) {
+                if (!p.skipTransitionBeats && p.beatCount > 0) {
+                    const events = [];
+                    for (let i = 0; i < p.beatCount; i++) events.push({ type: 'beat' });
+                    blocks.push({ key: 'beat-transition', events, slotCount: p.beatCount, destSlot });
+                    destSlot += p.beatCount;
+                }
+                palta.descending.forEach((line) => {
+                    const events = line.map((noteNum) => ({ type: 'note', noteNum }));
+                    const key = 'desc:' + line.join(',');
+                    for (let r = 0; r < listenReps; r++) {
+                        blocks.push({ key, events, slotCount: line.length, destSlot });
+                        destSlot += line.length;
+                    }
+                });
+            }
+
+            const totalSlots = destSlot;
+            const iterationSec = totalSlots * onsetInterval;
+            const totalLen = Math.max(1, Math.ceil((iterationSec + tailSec) * sampleRate));
+
+            // Render unique blocks (one offline render per content key).
+            const renderedMap = new Map();
+            const seen = new Set();
+            const uniqueBlocks = [];
+            for (const b of blocks) {
+                if (seen.has(b.key)) continue;
+                seen.add(b.key);
+                uniqueBlocks.push(b);
+            }
+            for (const b of uniqueBlocks) {
+                const blockSec = b.slotCount * onsetInterval;
+                const renderSec = blockSec + tailSec;
+                const buf = await renderPaltaBuffer(sampleRate, b.events, ip, renderSec);
+                renderedMap.set(b.key, buf);
+            }
+
+            // Assemble destination buffer via overlap-add.
+            const out = new Float32Array(totalLen);
+            for (const b of blocks) {
+                const buf = renderedMap.get(b.key);
+                const src = buf.getChannelData(0);
+                const startSample = Math.round(b.destSlot * onsetInterval * sampleRate);
+                const copyLen = Math.min(src.length, totalLen - startSample);
+                for (let i = 0; i < copyLen; i++) out[startSample + i] += src[i];
+            }
+
+            // Peak-normalize so the WAV encoder's hard-clip doesn't distort.
+            let peak = 0;
+            for (let i = 0; i < totalLen; i++) {
+                const a = Math.abs(out[i]);
+                if (a > peak) peak = a;
+            }
+            if (peak > 0.95) {
+                const scale = 0.95 / peak;
+                for (let i = 0; i < totalLen; i++) out[i] *= scale;
+            }
+
+            return {
+                buffer: {
+                    numberOfChannels: 1,
+                    sampleRate,
+                    length: totalLen,
+                    getChannelData: () => out,
+                },
+                iterationSec,
+                tailSec,
+            };
         }
 
         // Render one full palta iteration (plus tail) offline. Returns the
