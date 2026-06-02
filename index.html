@@ -10,12 +10,14 @@
   - Takes the first line of a palta/alankar (e.g. "Sa Re Ga Ma") and generates
     all ascending (aarohi) and descending (avarohi) lines automatically.
   - Listen mode: plays back the full palta with Piano or Harmonium synthesis,
-    orange highlight tracks the current note. A reps picker (×1–×10, default
-    ×1) sets how many times each line is played before moving to the next.
+    orange highlight tracks the current note. A reps picker
+    (×1/×3/×5/×10/×15/×20/×25/×30, default ×1) sets how many times each
+    line is played before moving to the next.
   - Practice mode: each line plays with full audio (orange highlight), then
     replays with metronome-only audio (blue highlight) so the student can
-    sing or play along. A reps picker (×1–×10, default ×2) sets how many
-    audio+silent cycles each line receives. Loop and Skip work as in Listen.
+    sing or play along. A reps picker (×1/×3/×5/×10/×15/×20/×25/×30,
+    default ×3) sets how many audio+silent cycles each line receives.
+    Loop and Skip work as in Listen.
   - Tanpura drone with two modes:
       Sample  — streams real recordings for all 12 keys (courtesy Delhite
                 Gurdeep / ksarpotdar/tanpura-online); no rendering wait.
@@ -1919,30 +1921,26 @@
                         <button class="play-btn" id="play-btn">&#9654; Listen Both</button>
                         <select class="listen-reps-select" id="listen-reps-all" title="Repetitions per line">
                             <option value="1" selected>×1</option>
-                            <option value="2">×2</option>
                             <option value="3">×3</option>
-                            <option value="4">×4</option>
                             <option value="5">×5</option>
-                            <option value="6">×6</option>
-                            <option value="7">×7</option>
-                            <option value="8">×8</option>
-                            <option value="9">×9</option>
                             <option value="10">×10</option>
+                            <option value="15">×15</option>
+                            <option value="20">×20</option>
+                            <option value="25">×25</option>
+                            <option value="30">×30</option>
                         </select>
                     </div>
                     <div class="practice-group">
                         <button class="play-btn practice-btn" id="practice-btn">&#9654; Practice Both</button>
                         <select class="practice-reps-select" id="practice-reps-all" title="Repetitions per line">
                             <option value="1">×1</option>
-                            <option value="2" selected>×2</option>
-                            <option value="3">×3</option>
-                            <option value="4">×4</option>
+                            <option value="3" selected>×3</option>
                             <option value="5">×5</option>
-                            <option value="6">×6</option>
-                            <option value="7">×7</option>
-                            <option value="8">×8</option>
-                            <option value="9">×9</option>
                             <option value="10">×10</option>
+                            <option value="15">×15</option>
+                            <option value="20">×20</option>
+                            <option value="25">×25</option>
+                            <option value="30">×30</option>
                         </select>
                     </div>
                     <label class="repeat-label"><input type="checkbox" id="repeat-all"> Loop</label>
@@ -2522,13 +2520,13 @@
                 listenRepsSelect.className = 'listen-reps-select';
                 listenRepsSelect.id = playId.replace('play-', 'listen-reps-');
                 listenRepsSelect.title = 'Repetitions per line';
-                for (let v = 1; v <= 10; v++) {
+                [1, 3, 5, 10, 15, 20, 25, 30].forEach((v) => {
                     const opt = document.createElement('option');
                     opt.value = String(v);
                     opt.textContent = '×' + v;
                     if (v === 1) opt.selected = true;
                     listenRepsSelect.appendChild(opt);
-                }
+                });
                 listenGroup.appendChild(listenRepsSelect);
                 controls.appendChild(listenGroup);
 
@@ -2545,13 +2543,13 @@
                 repsSelect.className = 'practice-reps-select';
                 repsSelect.id = playId.replace('play-', 'practice-reps-');
                 repsSelect.title = 'Repetitions per line';
-                for (let v = 1; v <= 10; v++) {
+                [1, 3, 5, 10, 15, 20, 25, 30].forEach((v) => {
                     const opt = document.createElement('option');
                     opt.value = String(v);
                     opt.textContent = '×' + v;
-                    if (v === 2) opt.selected = true;
+                    if (v === 3) opt.selected = true;
                     repsSelect.appendChild(opt);
-                }
+                });
                 practiceGroup.appendChild(repsSelect);
                 controls.appendChild(practiceGroup);
 
@@ -3863,7 +3861,7 @@
         //
         // Listen mode  — startPlayback(): renders one iteration, plays audio
         //                and highlights in sync. Repeat checkbox loops seamlessly.
-        //                A reps picker (×1–×10, default ×1) repeats each line
+        //                A reps picker (×1/×3/×5/×10/×15/×20/×25/×30, default ×1) repeats each line
         //                that many times before moving to the next.
         //
         // Practice mode — startPracticePlayback(): builds a doubled timeline via
@@ -3875,7 +3873,7 @@
         //   inserts metronome clicks so the user has a rhythmic cue to repeat after.
         //   During the silent pass the highlight turns blue (body.practice-silent
         //   CSS class) to signal it's the user's turn to sing or play along.
-        //   A reps picker (×2–×10, default ×2) controls how many audio+silent
+        //   A reps picker (×1/×3/×5/×10/×15/×20/×25/×30, default ×3) controls how many audio+silent
         //   cycles each line receives. Loop and Skip checkboxes work the same as
         //   Listen mode.
         // ══════════════════════════════════════════════════════
