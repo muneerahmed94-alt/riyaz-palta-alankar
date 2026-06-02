@@ -10,7 +10,8 @@
   - Takes the first line of a palta/alankar (e.g. "Sa Re Ga Ma") and generates
     all ascending (aarohi) and descending (avarohi) lines automatically.
   - Listen mode: plays back the full palta with Piano or Harmonium synthesis,
-    orange highlight tracks the current note.
+    orange highlight tracks the current note. A reps picker (×1–×10, default
+    ×1) sets how many times each line is played before moving to the next.
   - Practice mode: each line plays with full audio (orange highlight), then
     replays with metronome-only audio (blue highlight) so the student can
     sing or play along. A reps picker (×1–×10, default ×2) sets how many
@@ -58,11 +59,11 @@
   UI LAYOUT (Output Card):
     1. Generated Palta title + Copy as Text
     2. Sound / Type / Brand / Reed / Left Coupler options
-    3. Playback bar (Beats, Tempo, Listen Both, Practice Both + reps picker, Loop, Autoscroll)
+    3. Playback bar (Beats, Tempo, Listen Both + reps picker, Practice Both + reps picker, Loop, Autoscroll)
     4. Volume Mixer (Palta + Tanpura sliders, always visible below the playback bar)
     5. Include Avarohi checkbox (live toggle — shows/hides descending section)
     6. Pattern info
-    7. Aarohi (ascending) lines with Listen / Practice+reps / Loop / Autoscroll / Skip controls
+    7. Aarohi (ascending) lines with Listen+reps / Practice+reps / Loop / Autoscroll / Skip controls
     8. Avarohi (descending) lines (if enabled), same controls
     9. Legend (octave colour coding)
 
@@ -926,7 +927,7 @@
             background: #ffcdd2;
         }
 
-        .practice-group {
+        .practice-group, .listen-group {
             display: flex;
             align-items: center;
         }
@@ -946,8 +947,25 @@
             outline: none;
         }
 
+        .listen-reps-select {
+            border: 1px solid #a5d6a7;
+            border-left: none;
+            border-radius: 0 6px 6px 0;
+            background: #e8f5e9;
+            color: #2e7d32;
+            font-family: inherit;
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 0 0.3rem;
+            align-self: stretch;
+            cursor: pointer;
+            outline: none;
+        }
+
         .practice-group .section-practice-btn,
-        .practice-group .practice-btn {
+        .practice-group .practice-btn,
+        .listen-group .section-play-btn:not(.section-practice-btn),
+        .listen-group .play-btn:not(.practice-btn) {
             border-radius: 6px 0 0 6px;
         }
 
@@ -1897,7 +1915,21 @@
                     </div>
                 </div>
                 <div class="play-controls">
-                    <button class="play-btn" id="play-btn">&#9654; Listen Both</button>
+                    <div class="listen-group">
+                        <button class="play-btn" id="play-btn">&#9654; Listen Both</button>
+                        <select class="listen-reps-select" id="listen-reps-all" title="Repetitions per line">
+                            <option value="1" selected>×1</option>
+                            <option value="2">×2</option>
+                            <option value="3">×3</option>
+                            <option value="4">×4</option>
+                            <option value="5">×5</option>
+                            <option value="6">×6</option>
+                            <option value="7">×7</option>
+                            <option value="8">×8</option>
+                            <option value="9">×9</option>
+                            <option value="10">×10</option>
+                        </select>
+                    </div>
                     <div class="practice-group">
                         <button class="play-btn practice-btn" id="practice-btn">&#9654; Practice Both</button>
                         <select class="practice-reps-select" id="practice-reps-all" title="Repetitions per line">
@@ -2477,11 +2509,28 @@
                 const controls = document.createElement('div');
                 controls.className = 'section-play-controls';
 
+                const listenGroup = document.createElement('div');
+                listenGroup.className = 'listen-group';
+
                 const playBtn = document.createElement('button');
                 playBtn.className = 'section-play-btn';
                 playBtn.id = playId;
                 playBtn.textContent = '▶ Listen';
-                controls.appendChild(playBtn);
+                listenGroup.appendChild(playBtn);
+
+                const listenRepsSelect = document.createElement('select');
+                listenRepsSelect.className = 'listen-reps-select';
+                listenRepsSelect.id = playId.replace('play-', 'listen-reps-');
+                listenRepsSelect.title = 'Repetitions per line';
+                for (let v = 1; v <= 10; v++) {
+                    const opt = document.createElement('option');
+                    opt.value = String(v);
+                    opt.textContent = '×' + v;
+                    if (v === 1) opt.selected = true;
+                    listenRepsSelect.appendChild(opt);
+                }
+                listenGroup.appendChild(listenRepsSelect);
+                controls.appendChild(listenGroup);
 
                 const practiceGroup = document.createElement('div');
                 practiceGroup.className = 'practice-group';
@@ -3814,6 +3863,8 @@
         //
         // Listen mode  — startPlayback(): renders one iteration, plays audio
         //                and highlights in sync. Repeat checkbox loops seamlessly.
+        //                A reps picker (×1–×10, default ×1) repeats each line
+        //                that many times before moving to the next.
         //
         // Practice mode — startPracticePlayback(): builds a doubled timeline via
         //   buildPracticeAscTimeline / buildPracticeDescTimeline. Each line appears
@@ -3829,7 +3880,8 @@
         //   Listen mode.
         // ══════════════════════════════════════════════════════
 
-        function buildAscTimeline(palta, beatCount, skipIntroBeats) {
+        function buildAscTimeline(palta, beatCount, skipIntroBeats, reps) {
+            reps = reps || 1;
             const timeline = [];
             if (!skipIntroBeats) {
                 for (let i = 0; i < beatCount; i++) {
@@ -3837,14 +3889,17 @@
                 }
             }
             palta.ascending.forEach((line, li) => {
-                line.forEach((noteNum, si) => {
-                    timeline.push({ type: 'note', noteNum, section: 'asc', lineIdx: li, swarIdx: si });
-                });
+                for (let r = 0; r < reps; r++) {
+                    line.forEach((noteNum, si) => {
+                        timeline.push({ type: 'note', noteNum, section: 'asc', lineIdx: li, swarIdx: si });
+                    });
+                }
             });
             return timeline;
         }
 
-        function buildDescTimeline(palta, beatCount, skipTransitionBeats) {
+        function buildDescTimeline(palta, beatCount, skipTransitionBeats, reps) {
+            reps = reps || 1;
             const timeline = [];
             if (!skipTransitionBeats) {
                 for (let i = 0; i < beatCount; i++) {
@@ -3852,17 +3907,19 @@
                 }
             }
             palta.descending.forEach((line, li) => {
-                line.forEach((noteNum, si) => {
-                    timeline.push({ type: 'note', noteNum, section: 'desc', lineIdx: li, swarIdx: si });
-                });
+                for (let r = 0; r < reps; r++) {
+                    line.forEach((noteNum, si) => {
+                        timeline.push({ type: 'note', noteNum, section: 'desc', lineIdx: li, swarIdx: si });
+                    });
+                }
             });
             return timeline;
         }
 
-        function buildFullTimeline(palta, beatCount, skipIntroBeats, skipTransitionBeats) {
-            const timeline = buildAscTimeline(palta, beatCount, skipIntroBeats);
+        function buildFullTimeline(palta, beatCount, skipIntroBeats, skipTransitionBeats, reps) {
+            const timeline = buildAscTimeline(palta, beatCount, skipIntroBeats, reps);
             if (palta.descending && palta.descending.length > 0) {
-                timeline.push(...buildDescTimeline(palta, beatCount, skipTransitionBeats));
+                timeline.push(...buildDescTimeline(palta, beatCount, skipTransitionBeats, reps));
             }
             return timeline;
         }
@@ -3966,12 +4023,16 @@
 
             let repeatId, buildFn;
 
+            const listenRepsId = mode === 'asc' ? 'listen-reps-asc' : mode === 'desc' ? 'listen-reps-desc' : 'listen-reps-all';
+            const listenRepsEl = document.getElementById(listenRepsId);
+            const listenReps = listenRepsEl ? (parseInt(listenRepsEl.value) || 1) : 1;
+
             if (mode === 'asc') {
                 repeatId = 'repeat-asc';
-                buildFn = (p) => buildAscTimeline(currentPaltaData, p.beatCount, p.skipIntroBeats);
+                buildFn = (p) => buildAscTimeline(currentPaltaData, p.beatCount, p.skipIntroBeats, listenReps);
             } else if (mode === 'desc') {
                 repeatId = 'repeat-desc';
-                buildFn = (p) => buildDescTimeline(currentPaltaData, p.beatCount, p.skipTransitionBeats);
+                buildFn = (p) => buildDescTimeline(currentPaltaData, p.beatCount, p.skipTransitionBeats, listenReps);
             } else {
                 repeatId = 'repeat-all';
             }
@@ -4010,9 +4071,9 @@
             // Build the timeline for one iteration from the current UI.
             let tl = [];
             if (mode === 'all') {
-                const ascTl = buildAscTimeline(currentPaltaData, p.beatCount, p.skipIntroBeats);
+                const ascTl = buildAscTimeline(currentPaltaData, p.beatCount, p.skipIntroBeats, listenReps);
                 const descTl = (currentPaltaData.descending && currentPaltaData.descending.length > 0)
-                    ? buildDescTimeline(currentPaltaData, p.beatCount, p.skipTransitionBeats)
+                    ? buildDescTimeline(currentPaltaData, p.beatCount, p.skipTransitionBeats, listenReps)
                     : [];
                 tl = ascTl.concat(descTl);
             } else {
@@ -4130,7 +4191,7 @@
                     iterationSec: exactIterationSec,
                     isLooping: repeatOn,
                     playStartMs: null,
-                    renderParams: { sampleRate, ip, iterationSec, tailSec, renderSec },
+                    renderParams: { sampleRate, ip, iterationSec, tailSec, renderSec, reps: listenReps },
                 };
 
                 function beginHighlight() {
@@ -5680,14 +5741,15 @@
                     newTl = ascTl.concat(descTl);
                 }
             } else {
+                const reps = p.reps || 1;
                 if (lp.mode === 'asc') {
-                    newTl = buildAscTimeline(currentPaltaData, params.beatCount, params.skipIntroBeats);
+                    newTl = buildAscTimeline(currentPaltaData, params.beatCount, params.skipIntroBeats, reps);
                 } else if (lp.mode === 'desc') {
-                    newTl = buildDescTimeline(currentPaltaData, params.beatCount, params.skipTransitionBeats);
+                    newTl = buildDescTimeline(currentPaltaData, params.beatCount, params.skipTransitionBeats, reps);
                 } else {
-                    const ascTl = buildAscTimeline(currentPaltaData, params.beatCount, params.skipIntroBeats);
+                    const ascTl = buildAscTimeline(currentPaltaData, params.beatCount, params.skipIntroBeats, reps);
                     const descTl = (currentPaltaData.descending && currentPaltaData.descending.length > 0)
-                        ? buildDescTimeline(currentPaltaData, params.beatCount, params.skipTransitionBeats)
+                        ? buildDescTimeline(currentPaltaData, params.beatCount, params.skipTransitionBeats, reps)
                         : [];
                     newTl = ascTl.concat(descTl);
                 }
