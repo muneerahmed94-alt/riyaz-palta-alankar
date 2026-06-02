@@ -3864,7 +3864,12 @@
         // Listen mode  — startPlayback(): renders one iteration, plays audio
         //                and highlights in sync. Repeat checkbox loops seamlessly.
         //                A reps picker (×1–×10, default ×1) repeats each line
-        //                that many times before moving to the next.
+        //                that many times before moving to the next. To keep
+        //                the wait short for high reps, we render a single-rep
+        //                iteration offline and tile the buffer in JS via
+        //                tileBufferWithTail() — reverb tails bleed across
+        //                rep boundaries the same way buildSeamlessLoopBuffer
+        //                handles loop wraparound.
         //
         // Practice mode — startPracticePlayback(): builds a doubled timeline via
         //   buildPracticeAscTimeline / buildPracticeDescTimeline. Each line appears
@@ -4068,7 +4073,9 @@
             const ip = getIterParams(p);
             const onsetInterval = ip.onsetInterval;
 
-            // Build the timeline for one iteration from the current UI.
+            // Build the FULL timeline (with reps expanded) — drives the
+            // highlight loop. For audio rendering we only synthesize one
+            // rep and tile it in JS, since every rep is identical audio.
             let tl = [];
             if (mode === 'all') {
                 const ascTl = buildAscTimeline(currentPaltaData, p.beatCount, p.skipIntroBeats, listenReps);
@@ -4084,14 +4091,31 @@
                 return;
             }
 
-            // Iteration length on the audio timeline.
+            // Single-rep timeline used for the offline render. With
+            // listenReps>1 this is much shorter than `tl`, cutting render
+            // wait time from O(reps) to O(1).
+            let renderTl = [];
+            if (mode === 'all') {
+                const ascTl1 = buildAscTimeline(currentPaltaData, p.beatCount, p.skipIntroBeats, 1);
+                const descTl1 = (currentPaltaData.descending && currentPaltaData.descending.length > 0)
+                    ? buildDescTimeline(currentPaltaData, p.beatCount, p.skipTransitionBeats, 1)
+                    : [];
+                renderTl = ascTl1.concat(descTl1);
+            } else if (mode === 'asc') {
+                renderTl = buildAscTimeline(currentPaltaData, p.beatCount, p.skipIntroBeats, 1);
+            } else {
+                renderTl = buildDescTimeline(currentPaltaData, p.beatCount, p.skipTransitionBeats, 1);
+            }
+
+            // Iteration length on the audio timeline (full reps).
             const iterationSec = tl.length * onsetInterval;
+            const renderIterSec = renderTl.length * onsetInterval;
             // Extra tail for reverb / release so we don't chop the last note
             // when looping. For Repeat mode we set loopEnd = iterationSec
             // so the tail of the last note naturally bleeds into the top
             // of the next loop (seamless), but we still need to render it.
             const tailSec = ip.instrument === 'harmonium' ? 2.4 : 0.8;
-            const renderSec = iterationSec + tailSec;
+            const renderSec = renderIterSec + tailSec;
 
             // Sample rate for the render. We use 44.1 kHz: universally
             // supported by <audio>, matches the silent-primer WAV, and
@@ -4145,8 +4169,14 @@
             const repeatCbEarly = document.getElementById(repeatId);
             const repeatOn = !!(repeatCbEarly && repeatCbEarly.checked);
 
-            renderPaltaBuffer(sampleRate, tl, ip, renderSec).then(async (buffer) => {
+            renderPaltaBuffer(sampleRate, renderTl, ip, renderSec).then(async (rawBuffer) => {
                 if (!playbackState || playbackState.mediaName !== 'palta') return;
+
+                // Tile the single-rep render up to listenReps copies, with
+                // each copy's reverb tail bleeding into the next rep's start.
+                const buffer = listenReps > 1
+                    ? tileBufferWithTail(rawBuffer, renderIterSec, listenReps)
+                    : rawBuffer;
 
                 const shaped = repeatOn
                     ? buildSeamlessLoopBuffer(buffer, iterationSec)
@@ -4191,7 +4221,7 @@
                     iterationSec: exactIterationSec,
                     isLooping: repeatOn,
                     playStartMs: null,
-                    renderParams: { sampleRate, ip, iterationSec, tailSec, renderSec, reps: listenReps },
+                    renderParams: { sampleRate, ip, iterationSec, tailSec, renderSec, reps: listenReps, renderIterSec },
                 };
 
                 function beginHighlight() {
@@ -4291,15 +4321,15 @@
             const repsEl = document.getElementById(repsSelectId);
             const reps = repsEl ? (parseInt(repsEl.value) || 2) : 2;
 
-            function buildPracticeTl(p) {
+            function buildPracticeTl(p, r) {
                 if (mode === 'asc') {
-                    return buildPracticeAscTimeline(currentPaltaData, p.beatCount, p.skipIntroBeats, reps);
+                    return buildPracticeAscTimeline(currentPaltaData, p.beatCount, p.skipIntroBeats, r);
                 } else if (mode === 'desc') {
-                    return buildPracticeDescTimeline(currentPaltaData, p.beatCount, p.skipTransitionBeats, reps);
+                    return buildPracticeDescTimeline(currentPaltaData, p.beatCount, p.skipTransitionBeats, r);
                 } else {
-                    const ascTl = buildPracticeAscTimeline(currentPaltaData, p.beatCount, p.skipIntroBeats, reps);
+                    const ascTl = buildPracticeAscTimeline(currentPaltaData, p.beatCount, p.skipIntroBeats, r);
                     const descTl = (currentPaltaData.descending && currentPaltaData.descending.length > 0)
-                        ? buildPracticeDescTimeline(currentPaltaData, p.beatCount, p.skipTransitionBeats, reps)
+                        ? buildPracticeDescTimeline(currentPaltaData, p.beatCount, p.skipTransitionBeats, r)
                         : [];
                     return ascTl.concat(descTl);
                 }
@@ -4317,12 +4347,14 @@
                 leftCoupler: p.leftCoupler,
             };
             const onsetInterval = ip.onsetInterval;
-            const tl = buildPracticeTl(p);
+            const tl = buildPracticeTl(p, reps);
+            const renderTl = reps > 1 ? buildPracticeTl(p, 1) : tl;
             if (!tl || tl.length === 0) return;
 
             const iterationSec = tl.length * onsetInterval;
+            const renderIterSec = renderTl.length * onsetInterval;
             const tailSec = ip.instrument === 'harmonium' ? 2.4 : 0.8;
-            const renderSec = iterationSec + tailSec;
+            const renderSec = renderIterSec + tailSec;
             const sampleRate = 44100;
 
             const repeatCbEarly = document.getElementById(repeatId);
@@ -4350,8 +4382,12 @@
                 },
             });
 
-            renderPracticeBuffer(sampleRate, tl, ip, renderSec).then(async (buffer) => {
+            renderPracticeBuffer(sampleRate, renderTl, ip, renderSec).then(async (rawBuffer) => {
                 if (!playbackState || playbackState.mediaName !== 'palta') return;
+
+                const buffer = reps > 1
+                    ? tileBufferWithTail(rawBuffer, renderIterSec, reps)
+                    : rawBuffer;
 
                 const shaped = repeatOn
                     ? buildSeamlessLoopBuffer(buffer, iterationSec)
@@ -4382,7 +4418,7 @@
                     iterationSec: exactIterationSec,
                     isLooping: repeatOn,
                     playStartMs: null,
-                    renderParams: { sampleRate, ip, iterationSec, tailSec, renderSec, reps },
+                    renderParams: { sampleRate, ip, iterationSec, tailSec, renderSec, reps, renderIterSec },
                 };
 
                 function beginHighlight() {
@@ -5201,6 +5237,49 @@
             };
         }
 
+        // Tile a rendered buffer N times by overlapping each copy at
+        // `iterSec` boundaries — each rep's reverb/release tail bleeds
+        // into the next rep's start (just as the steady-state would
+        // sound if we'd rendered all reps offline). Output length is
+        // reps*iterSec + the original tail past iterSec, so the final
+        // rep keeps its full decay. Used by Listen/Practice playback to
+        // avoid re-synthesizing identical audio for every rep.
+        function tileBufferWithTail(buffer, iterSec, reps) {
+            const sr = buffer.sampleRate;
+            const iterLen = Math.max(1, Math.round(iterSec * sr));
+            const tailLen = Math.max(0, buffer.length - iterLen);
+            const totalLen = iterLen * reps + tailLen;
+            const channels = [];
+            let peak = 0;
+            for (let c = 0; c < buffer.numberOfChannels; c++) {
+                const src = buffer.getChannelData(c);
+                const out = new Float32Array(totalLen);
+                for (let r = 0; r < reps; r++) {
+                    const offset = r * iterLen;
+                    const copyLen = Math.min(src.length, totalLen - offset);
+                    for (let i = 0; i < copyLen; i++) out[offset + i] += src[i];
+                }
+                for (let i = 0; i < totalLen; i++) {
+                    const a = Math.abs(out[i]);
+                    if (a > peak) peak = a;
+                }
+                channels.push(out);
+            }
+            if (peak > 0.95) {
+                const scale = 0.95 / peak;
+                for (let c = 0; c < channels.length; c++) {
+                    const buf = channels[c];
+                    for (let i = 0; i < buf.length; i++) buf[i] *= scale;
+                }
+            }
+            return {
+                numberOfChannels: buffer.numberOfChannels,
+                sampleRate: sr,
+                length: totalLen,
+                getChannelData: (i) => channels[i],
+            };
+        }
+
         // Return a view over [startSec, startSec + durationSec] of an
         // AudioBuffer. Used to extract a steady-state snapshot for the
         // tanpura loop. Returned object has the minimal shape that
@@ -5696,8 +5775,33 @@
                 const token = playbackState.pendingRenderToken;
                 const p = lp.renderParams;
                 const renderFn = lp.isPractice ? renderPracticeBuffer : renderPaltaBuffer;
-                renderFn(p.sampleRate, lp.tl, p.ip, p.renderSec).then((buffer) => {
+                // Rebuild a single-rep timeline for fast offline render; tile for the rest.
+                const params = getPlaybackParams();
+                const reps = lp.isPractice ? (p.reps || 2) : (p.reps || 1);
+                const buildOne = lp.isPractice
+                    ? {
+                        asc: () => buildPracticeAscTimeline(currentPaltaData, params.beatCount, params.skipIntroBeats, 1),
+                        desc: () => buildPracticeDescTimeline(currentPaltaData, params.beatCount, params.skipTransitionBeats, 1),
+                    }
+                    : {
+                        asc: () => buildAscTimeline(currentPaltaData, params.beatCount, params.skipIntroBeats, 1),
+                        desc: () => buildDescTimeline(currentPaltaData, params.beatCount, params.skipTransitionBeats, 1),
+                    };
+                let renderTl;
+                if (lp.mode === 'asc') renderTl = buildOne.asc();
+                else if (lp.mode === 'desc') renderTl = buildOne.desc();
+                else {
+                    const a = buildOne.asc();
+                    const d = (currentPaltaData.descending && currentPaltaData.descending.length > 0) ? buildOne.desc() : [];
+                    renderTl = a.concat(d);
+                }
+                const renderIterSec = renderTl.length * p.ip.onsetInterval;
+                const renderSec = renderIterSec + p.tailSec;
+                renderFn(p.sampleRate, renderTl, p.ip, renderSec).then((rawBuffer) => {
                     if (!playbackState || playbackState.pendingRenderToken !== token) return;
+                    const buffer = reps > 1
+                        ? tileBufferWithTail(rawBuffer, renderIterSec, reps)
+                        : rawBuffer;
                     const shaped = buildSeamlessLoopBuffer(buffer, p.iterationSec);
                     const blob = audioBufferToWavBlob(shaped);
                     const exactIterationSec = shaped.length / p.sampleRate;
@@ -5726,44 +5830,61 @@
             playbackState.pendingRenderToken = token;
 
             const params = getPlaybackParams();
-            let newTl;
+            let newTl, newRenderTl;
+            const reps = lp.isPractice ? (p.reps || 2) : (p.reps || 1);
             if (lp.isPractice) {
-                const reps = p.reps || 2;
                 if (lp.mode === 'asc') {
                     newTl = buildPracticeAscTimeline(currentPaltaData, params.beatCount, params.skipIntroBeats, reps);
+                    newRenderTl = buildPracticeAscTimeline(currentPaltaData, params.beatCount, params.skipIntroBeats, 1);
                 } else if (lp.mode === 'desc') {
                     newTl = buildPracticeDescTimeline(currentPaltaData, params.beatCount, params.skipTransitionBeats, reps);
+                    newRenderTl = buildPracticeDescTimeline(currentPaltaData, params.beatCount, params.skipTransitionBeats, 1);
                 } else {
                     const ascTl = buildPracticeAscTimeline(currentPaltaData, params.beatCount, params.skipIntroBeats, reps);
                     const descTl = (currentPaltaData.descending && currentPaltaData.descending.length > 0)
                         ? buildPracticeDescTimeline(currentPaltaData, params.beatCount, params.skipTransitionBeats, reps)
                         : [];
                     newTl = ascTl.concat(descTl);
+                    const ascTl1 = buildPracticeAscTimeline(currentPaltaData, params.beatCount, params.skipIntroBeats, 1);
+                    const descTl1 = (currentPaltaData.descending && currentPaltaData.descending.length > 0)
+                        ? buildPracticeDescTimeline(currentPaltaData, params.beatCount, params.skipTransitionBeats, 1)
+                        : [];
+                    newRenderTl = ascTl1.concat(descTl1);
                 }
             } else {
-                const reps = p.reps || 1;
                 if (lp.mode === 'asc') {
                     newTl = buildAscTimeline(currentPaltaData, params.beatCount, params.skipIntroBeats, reps);
+                    newRenderTl = buildAscTimeline(currentPaltaData, params.beatCount, params.skipIntroBeats, 1);
                 } else if (lp.mode === 'desc') {
                     newTl = buildDescTimeline(currentPaltaData, params.beatCount, params.skipTransitionBeats, reps);
+                    newRenderTl = buildDescTimeline(currentPaltaData, params.beatCount, params.skipTransitionBeats, 1);
                 } else {
                     const ascTl = buildAscTimeline(currentPaltaData, params.beatCount, params.skipIntroBeats, reps);
                     const descTl = (currentPaltaData.descending && currentPaltaData.descending.length > 0)
                         ? buildDescTimeline(currentPaltaData, params.beatCount, params.skipTransitionBeats, reps)
                         : [];
                     newTl = ascTl.concat(descTl);
+                    const ascTl1 = buildAscTimeline(currentPaltaData, params.beatCount, params.skipIntroBeats, 1);
+                    const descTl1 = (currentPaltaData.descending && currentPaltaData.descending.length > 0)
+                        ? buildDescTimeline(currentPaltaData, params.beatCount, params.skipTransitionBeats, 1)
+                        : [];
+                    newRenderTl = ascTl1.concat(descTl1);
                 }
             }
             if (!newTl || newTl.length === 0) return;
 
             const newIterationSec = newTl.length * p.ip.onsetInterval;
-            const newRenderSec = newIterationSec + p.tailSec;
+            const newRenderIterSec = newRenderTl.length * p.ip.onsetInterval;
+            const newRenderSec = newRenderIterSec + p.tailSec;
             const repeatCb = document.getElementById(lp.repeatId);
             const repeatOn = !!(repeatCb && repeatCb.checked);
 
             const renderFn = lp.isPractice ? renderPracticeBuffer : renderPaltaBuffer;
-            renderFn(p.sampleRate, newTl, p.ip, newRenderSec).then((buffer) => {
+            renderFn(p.sampleRate, newRenderTl, p.ip, newRenderSec).then((rawBuffer) => {
                 if (!playbackState || playbackState.pendingRenderToken !== token) return;
+                const buffer = reps > 1
+                    ? tileBufferWithTail(rawBuffer, newRenderIterSec, reps)
+                    : rawBuffer;
                 const shaped = repeatOn
                     ? buildSeamlessLoopBuffer(buffer, newIterationSec)
                     : trimBuffer(buffer, newIterationSec + p.tailSec);
@@ -5777,6 +5898,7 @@
                 lp.isLooping = repeatOn;
                 lp.renderParams.iterationSec = newIterationSec;
                 lp.renderParams.renderSec = newRenderSec;
+                lp.renderParams.renderIterSec = newRenderIterSec;
                 if (playbackState.endedCleanup) {
                     entry.el.removeEventListener('ended', playbackState.endedCleanup);
                     playbackState.endedCleanup = null;
