@@ -177,10 +177,10 @@
         pitch-shifted via AudioBufferSourceNode.playbackRate. Decoded once
         with a live AudioContext, cached, then reused inside
         OfflineAudioContext for Listen/Practice rendering.
-        Voicing chain (per-context cached bus): make-up gain → +1.5 dB
-        low-shelf @ 200 Hz (warmth) → -4.5 dB high-shelf @ 3.5 kHz (mellow,
-        non-piercing) → dry + a gentle (~0.09) small-room convolution
-        reverb for ambience. Sustain shaping balances continuity against
+        Voicing chain (per-context cached bus): make-up gain → +2.5 dB
+        low-shelf @ 200 Hz (bass weight) → -6 dB high-shelf @ 2.8 kHz
+        (mellow, not bright) → +2.5 dB peak @ 320 Hz (low-mid punch) →
+        dry + a gentle (~0.09) small-room convolution reverb for ambience. Sustain shaping balances continuity against
         mush: the effective ring is first capped at ~1.4× the onset interval
         at the call site (notes can bleed gently into the next onset), then
         held flat for 80 % of that capped duration and ramped out over a
@@ -3115,16 +3115,16 @@
             return best;
         }
         // Per-context piano voicing bus (default voicing):
-        //   make-up gain (1.4×)
-        //   → +1.5 dB low-shelf @ 200 Hz   (warmth)
-        //   → -4.5 dB high-shelf @ 3.5 kHz (mellow, not piercing)
-        //   → flat presence band (kept as a future tuning hook)
+        //   make-up gain (1.5×)
+        //   → +2.5 dB low-shelf @ 200 Hz    (bass weight)
+        //   → -6.0 dB high-shelf @ 2.8 kHz  (kill brightness)
+        //   → +2.5 dB peak @ 320 Hz Q=0.9   (low-mid punch / body)
         //   → dry path → dest
         //   → wet path: HP 350 / LP 5 kHz / convolver (room IR) / 0.09× → dest
-        // Soft-pedal voicing (when softPedal=true): make-up gain 1.05×,
-        // low-shelf +0.5 dB @ 200 Hz, high-shelf -9 dB @ 2.2 kHz — darker,
-        // quieter, felt-piano feel. Plus a 40 ms gain fade-in per note in
-        // createSampledPianoNote that softens the hammer attack.
+        // Soft-pedal voicing (when softPedal=true): make-up gain 1.15×,
+        // low-shelf +1.5 dB, high-shelf -9 dB @ 2 kHz, punch +1.5 dB —
+        // darker, quieter, felt-piano feel. Plus a 40 ms gain fade-in per
+        // note in createSampledPianoNote that softens the hammer attack.
         // Tuned to be warm but not mushy: very low wet send and a high-pass
         // on the wet so reverb doesn't pile up low-mid mud during dense
         // sustains. Reuses the harmonium room IR (it's a generic small-room
@@ -3138,27 +3138,29 @@
             if (cached && cached.finalDest === finalDest && cached[variant]) return cached[variant];
             const input = ctx.createGain();
             // Soft pedal lowers level slightly (real una corda voicing).
-            input.gain.value = softPedal ? 1.05 : 1.4;
+            input.gain.value = softPedal ? 1.15 : 1.5;
 
+            // Bass weight + warmth.
             const lowShelf = ctx.createBiquadFilter();
             lowShelf.type = 'lowshelf';
             lowShelf.frequency.value = 200;
-            lowShelf.gain.value = softPedal ? 0.5 : 1.5;          // less low-end push
+            lowShelf.gain.value = softPedal ? 1.5 : 2.5;
 
-            // Tame brightness — gentle high-shelf cut above ~3.5 kHz softens
-            // the hammer attack and harmonics without dulling pitch clarity.
-            // Soft pedal pushes this further: bigger cut at a lower corner
-            // for a darker, felt-like timbre.
+            // Tame brightness — high-shelf cut softens hammer attack and
+            // harmonics. Soft pedal pushes this further (felt-piano).
             const highShelf = ctx.createBiquadFilter();
             highShelf.type = 'highshelf';
-            highShelf.frequency.value = softPedal ? 2200 : 3500;
-            highShelf.gain.value = softPedal ? -9.0 : -4.5;
+            highShelf.frequency.value = softPedal ? 2000 : 2800;
+            highShelf.gain.value = softPedal ? -9.0 : -6.0;
 
+            // Repurposed: low-mid PUNCH peak at 320 Hz (was flat presence).
+            // This is where real-piano body/thump lives — a small boost adds
+            // power without any brightness.
             const presence = ctx.createBiquadFilter();
             presence.type = 'peaking';
-            presence.frequency.value = 3200;
-            presence.Q.value = 0.8;
-            presence.gain.value = 0;                              // flat
+            presence.frequency.value = 320;
+            presence.Q.value = 0.9;
+            presence.gain.value = softPedal ? 1.5 : 2.5;
 
             input.connect(lowShelf);
             lowShelf.connect(highShelf);
