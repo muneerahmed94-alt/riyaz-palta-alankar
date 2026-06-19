@@ -179,9 +179,12 @@
         OfflineAudioContext for Listen/Practice rendering.
         Voicing chain (per-context cached bus): make-up gain → +1.5 dB
         low-shelf @ 200 Hz (warmth) → -4.5 dB high-shelf @ 3.5 kHz (mellow,
-        non-piercing) → dry + a very subtle (~0.05) small-room convolution
-        reverb. Each note's tail is capped at ~1.4× its musical duration so
-        successive notes don't pile into mush.
+        non-piercing) → dry + a very subtle (~0.03) small-room convolution
+        reverb. To prevent mush at higher tempos, each note's effective ring
+        is first capped at the onset interval at the call site, then ramped
+        out at 0.95× of that capped duration over a 0.18 s release — so
+        notes decay before the next onset hits and lines stay distinct
+        even at 180+ BPM.
         Soft pedal — alternate voicing modeled on una corda / felt-piano
         timbre: lower make-up gain (1.05× vs 1.4×), reduced low-shelf
         (+0.5 dB), bigger high-shelf cut (-9 dB @ 2.2 kHz vs -4.5 dB @
@@ -3109,18 +3112,23 @@
             }
             return best;
         }
-        // Per-context piano voicing bus:
+        // Per-context piano voicing bus (default voicing):
         //   make-up gain (1.4×)
         //   → +1.5 dB low-shelf @ 200 Hz   (warmth)
         //   → -4.5 dB high-shelf @ 3.5 kHz (mellow, not piercing)
         //   → flat presence band (kept as a future tuning hook)
         //   → dry path → dest
-        //   → wet path: HP 350 / LP 5 kHz / convolver (room IR) / 0.05× → dest
+        //   → wet path: HP 350 / LP 5 kHz / convolver (room IR) / 0.03× → dest
+        // Soft-pedal voicing (when softPedal=true): make-up gain 1.05×,
+        // low-shelf +0.5 dB @ 200 Hz, high-shelf -9 dB @ 2.2 kHz — darker,
+        // quieter, felt-piano feel. Plus a 40 ms gain fade-in per note in
+        // createSampledPianoNote that softens the hammer attack.
         // Tuned to be warm but not mushy: very low wet send and a high-pass
         // on the wet so reverb doesn't pile up low-mid mud during dense
         // sustains. Reuses the harmonium room IR (it's a generic small-room
         // synthetic noise IR, not harmonium-specific) so we don't duplicate
-        // the buffer.
+        // the buffer. Bus is cached per (ctx, soft-pedal-state) so toggling
+        // mid-session swaps voicings cleanly.
         const _pianoBusCache = new WeakMap(); // ctx → { default, softPedal, finalDest }
         function getPianoBus(ctx, finalDest, softPedal) {
             const variant = softPedal ? 'softPedal' : 'default';
