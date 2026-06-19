@@ -3172,7 +3172,7 @@
             convolver.buffer = getHarmoniumRoomIR(ctx);
             convolver.normalize = true;
             const wetGain = ctx.createGain();
-            wetGain.gain.value = 0.05;                            // very subtle wet
+            wetGain.gain.value = 0.03;                            // barely-there wet
             presence.connect(wetHP);
             wetHP.connect(wetLP);
             wetLP.connect(convolver);
@@ -3243,13 +3243,13 @@
                 }
                 // Effective sample length after pitch-shift.
                 const sampleSec = buf.duration / rate;
-                // Cap ring-out so successive notes don't pile up into mush.
-                // We let each note breathe ~1.4× its musical duration, then
-                // ramp down — this is enough for a natural piano decay
-                // without overlapping tails muddying the next note.
-                const naturalRing = Math.min(sampleSec, Math.max(duration * 1.4, duration + 0.6));
-                const releaseStart = startTime + naturalRing;
-                const releaseEnd = releaseStart + 0.3;
+                // Cap ring-out tightly so successive notes don't pile up
+                // into mush. We let each note ring for ~95% of its musical
+                // duration (so the onset is near-silent before the next
+                // note hits), then ramp out over a short release.
+                const ringSec = Math.min(sampleSec, duration * 0.95);
+                const releaseStart = startTime + ringSec;
+                const releaseEnd = releaseStart + 0.18;
                 gain.gain.setValueAtTime(gainScale, releaseStart);
                 gain.gain.exponentialRampToValueAtTime(0.0001, releaseEnd);
                 src.connect(gain);
@@ -4895,7 +4895,10 @@
                         createHarmoniumNote(ctx, reverb.input, freq, evTime, noteDuration, reedType, leftCoupler, false, brand);
                     } else if (pianoSamples) {
                         const pbus = getPianoBus(ctx, dest, pianoSoftPedal);
-                        createSampledPianoNote(ctx, pbus.input, freq, evTime, noteDuration, leftCoupler, false, 1.0, pianoSoftPedal);
+                        // Cap effective ring at the onset interval so notes
+                        // don't overlap into mush at high tempos.
+                        const ringDur = Math.min(noteDuration, onsetInterval);
+                        createSampledPianoNote(ctx, pbus.input, freq, evTime, ringDur, leftCoupler, false, 1.0, pianoSoftPedal);
                     } else {
                         createPianoNote(ctx, dest, freq, evTime, noteDuration, pianoType, leftCoupler, false);
                     }
