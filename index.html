@@ -179,12 +179,14 @@
         OfflineAudioContext for Listen/Practice rendering.
         Voicing chain (per-context cached bus): make-up gain → +1.5 dB
         low-shelf @ 200 Hz (warmth) → -4.5 dB high-shelf @ 3.5 kHz (mellow,
-        non-piercing) → dry + a very subtle (~0.03) small-room convolution
-        reverb. To prevent mush at higher tempos, each note's effective ring
-        is first capped at the onset interval at the call site, then ramped
-        out at 0.95× of that capped duration over a 0.18 s release — so
-        notes decay before the next onset hits and lines stay distinct
-        even at 180+ BPM.
+        non-piercing) → dry + a gentle (~0.09) small-room convolution
+        reverb for ambience. Sustain shaping balances continuity against
+        mush: the effective ring is first capped at ~1.4× the onset interval
+        at the call site (notes can bleed gently into the next onset), then
+        held flat for 80 % of that capped duration and ramped out over a
+        soft tail (release ends at duration + 0.35 s, sample length
+        permitting). Slow tempos sustain naturally; dense fast lines stay
+        articulate.
         Soft pedal — alternate voicing modeled on una corda / felt-piano
         timbre: lower make-up gain (1.05× vs 1.4×), reduced low-shelf
         (+0.5 dB), bigger high-shelf cut (-9 dB @ 2.2 kHz vs -4.5 dB @
@@ -3118,7 +3120,7 @@
         //   → -4.5 dB high-shelf @ 3.5 kHz (mellow, not piercing)
         //   → flat presence band (kept as a future tuning hook)
         //   → dry path → dest
-        //   → wet path: HP 350 / LP 5 kHz / convolver (room IR) / 0.03× → dest
+        //   → wet path: HP 350 / LP 5 kHz / convolver (room IR) / 0.09× → dest
         // Soft-pedal voicing (when softPedal=true): make-up gain 1.05×,
         // low-shelf +0.5 dB @ 200 Hz, high-shelf -9 dB @ 2.2 kHz — darker,
         // quieter, felt-piano feel. Plus a 40 ms gain fade-in per note in
@@ -3180,7 +3182,7 @@
             convolver.buffer = getHarmoniumRoomIR(ctx);
             convolver.normalize = true;
             const wetGain = ctx.createGain();
-            wetGain.gain.value = 0.03;                            // barely-there wet
+            wetGain.gain.value = 0.09;                            // gentle ambience
             presence.connect(wetHP);
             wetHP.connect(wetLP);
             wetLP.connect(convolver);
@@ -3251,13 +3253,12 @@
                 }
                 // Effective sample length after pitch-shift.
                 const sampleSec = buf.duration / rate;
-                // Cap ring-out tightly so successive notes don't pile up
-                // into mush. We let each note ring for ~95% of its musical
-                // duration (so the onset is near-silent before the next
-                // note hits), then ramp out over a short release.
-                const ringSec = Math.min(sampleSec, duration * 0.95);
-                const releaseStart = startTime + ringSec;
-                const releaseEnd = releaseStart + 0.18;
+                // Hold the note for ~80% of its allowed duration, then ramp
+                // out over a longer release tail so successive notes
+                // connect musically instead of feeling chopped.
+                const holdSec = Math.min(sampleSec, duration * 0.80);
+                const releaseStart = startTime + holdSec;
+                const releaseEnd = startTime + Math.min(sampleSec, duration + 0.35);
                 gain.gain.setValueAtTime(gainScale, releaseStart);
                 gain.gain.exponentialRampToValueAtTime(0.0001, releaseEnd);
                 src.connect(gain);
@@ -4903,9 +4904,11 @@
                         createHarmoniumNote(ctx, reverb.input, freq, evTime, noteDuration, reedType, leftCoupler, false, brand);
                     } else if (pianoSamples) {
                         const pbus = getPianoBus(ctx, dest, pianoSoftPedal);
-                        // Cap effective ring at the onset interval so notes
-                        // don't overlap into mush at high tempos.
-                        const ringDur = Math.min(noteDuration, onsetInterval);
+                        // Allow a small overlap into the next onset so notes
+                        // connect musically, but not so much that lines blur.
+                        // ~1.4× the onset interval gives a natural decay
+                        // curve that ducks under the next note's attack.
+                        const ringDur = Math.min(noteDuration, onsetInterval * 1.4);
                         createSampledPianoNote(ctx, pbus.input, freq, evTime, ringDur, leftCoupler, false, 1.0, pianoSoftPedal);
                     } else {
                         createPianoNote(ctx, dest, freq, evTime, noteDuration, pianoType, leftCoupler, false);
