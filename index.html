@@ -166,7 +166,8 @@
   See generateSpecialPalta() and doGenerateSpecial() in JS.
 
   SOUND SYNTHESIS:
-  - Piano: Two modes selectable by a "Realistic" checkbox (default on):
+  - Piano: Two modes selectable by a "Realistic" checkbox (default on),
+    plus an optional "Soft pedal" toggle on the realistic path:
       Realistic — Multisampled grand piano MP3s from
         nbrosowsky.github.io/tonejs-instruments/samples/piano/ (~160 KB per
         note — 2.6× the bitrate of the tonejs Salamander mirror, with a
@@ -181,6 +182,11 @@
         non-piercing) → dry + a very subtle (~0.05) small-room convolution
         reverb. Each note's tail is capped at ~1.4× its musical duration so
         successive notes don't pile into mush.
+        Soft pedal — alternate voicing modeled on una corda / felt-piano
+        timbre: lower make-up gain (1.05× vs 1.4×), reduced low-shelf
+        (+0.5 dB), bigger high-shelf cut (-9 dB @ 2.2 kHz vs -4.5 dB @
+        3.5 kHz), and a 40 ms gain fade-in per note to soften the hammer
+        attack. Bus is cached per (ctx, soft-pedal-state).
       Synth     — additive synthesis with inharmonicity, hammer noise, body
         resonance. Three variants: Grand, Upright, Electric/Rhodes.
   - Harmonium: Source-filter synthesis after Puranik & Scavone (DAFx 2023).
@@ -1880,6 +1886,10 @@
                     <input type="checkbox" id="piano-use-sample" checked>
                     Realistic
                 </label>
+                <label class="piano-only visible tanpura-sample-label" id="piano-soft-pedal-label" style="margin-right:0.2rem">
+                    <input type="checkbox" id="piano-soft-pedal">
+                    Soft pedal
+                </label>
                 <label class="piano-only visible" id="piano-type-label" style="display:none">
                     Type&nbsp;
                     <select class="reed-select" id="piano-type-select">
@@ -2013,6 +2023,10 @@
                 <label class="midi-piano-only midi-visible" id="midi-piano-sample-label" style="margin-right:0.2rem">
                     <input type="checkbox" id="midi-piano-use-sample" checked>
                     Realistic
+                </label>
+                <label class="midi-piano-only midi-visible" id="midi-piano-soft-pedal-label" style="margin-right:0.2rem">
+                    <input type="checkbox" id="midi-piano-soft-pedal">
+                    Soft pedal
                 </label>
                 <label class="midi-piano-only midi-visible" id="midi-piano-type-label" style="display:none">
                     Type&nbsp;
@@ -3107,24 +3121,28 @@
         // sustains. Reuses the harmonium room IR (it's a generic small-room
         // synthetic noise IR, not harmonium-specific) so we don't duplicate
         // the buffer.
-        const _pianoBusCache = new WeakMap();
-        function getPianoBus(ctx, finalDest) {
+        const _pianoBusCache = new WeakMap(); // ctx → { default, softPedal, finalDest }
+        function getPianoBus(ctx, finalDest, softPedal) {
+            const variant = softPedal ? 'softPedal' : 'default';
             const cached = _pianoBusCache.get(ctx);
-            if (cached && cached.finalDest === finalDest) return cached;
+            if (cached && cached.finalDest === finalDest && cached[variant]) return cached[variant];
             const input = ctx.createGain();
-            input.gain.value = 1.4;                              // gentle make-up gain
+            // Soft pedal lowers level slightly (real una corda voicing).
+            input.gain.value = softPedal ? 1.05 : 1.4;
 
             const lowShelf = ctx.createBiquadFilter();
             lowShelf.type = 'lowshelf';
             lowShelf.frequency.value = 200;
-            lowShelf.gain.value = 1.5;                            // subtle warmth
+            lowShelf.gain.value = softPedal ? 0.5 : 1.5;          // less low-end push
 
             // Tame brightness — gentle high-shelf cut above ~3.5 kHz softens
             // the hammer attack and harmonics without dulling pitch clarity.
+            // Soft pedal pushes this further: bigger cut at a lower corner
+            // for a darker, felt-like timbre.
             const highShelf = ctx.createBiquadFilter();
             highShelf.type = 'highshelf';
-            highShelf.frequency.value = 3500;
-            highShelf.gain.value = -4.5;
+            highShelf.frequency.value = softPedal ? 2200 : 3500;
+            highShelf.gain.value = softPedal ? -9.0 : -4.5;
 
             const presence = ctx.createBiquadFilter();
             presence.type = 'peaking';
@@ -3161,8 +3179,12 @@
             convolver.connect(wetGain);
             wetGain.connect(finalDest);
 
-            const bus = { input, finalDest };
-            _pianoBusCache.set(ctx, bus);
+            const bus = { input };
+            const cacheEntry = cached && cached.finalDest === finalDest
+                ? cached
+                : { finalDest };
+            cacheEntry[variant] = bus;
+            _pianoBusCache.set(ctx, cacheEntry);
             return bus;
         }
 
@@ -3195,10 +3217,15 @@
         // for routing dest through the EQ+reverb bus (use getPianoBus to
         // obtain bus.input and connect dest → bus.input). voiceGain scales
         // the sample amplitude (used by MIDI velocity).
-        function createSampledPianoNote(ctx, dest, freq, startTime, duration, leftCoupler, rightCoupler, voiceGain) {
+        function createSampledPianoNote(ctx, dest, freq, startTime, duration, leftCoupler, rightCoupler, voiceGain, softPedal) {
             voiceGain = voiceGain == null ? 1.0 : voiceGain;
             const busInput = dest;
             const sources = [];
+            // Soft pedal: slow the perceived attack with a short fade-in so
+            // the hammer-strike transient is less prominent. (Skipping into
+            // the sample changes pitch via playbackRate, so we ramp gain
+            // instead.)
+            const attackSec = softPedal ? 0.04 : 0;
             function scheduleOne(targetFreq, gainScale) {
                 const sample = findNearestPianoSample(targetFreq);
                 const buf = _pianoSampleCache.get(sample.name);
@@ -3208,7 +3235,12 @@
                 src.buffer = buf;
                 src.playbackRate.value = rate;
                 const gain = ctx.createGain();
-                gain.gain.setValueAtTime(gainScale, startTime);
+                if (attackSec > 0) {
+                    gain.gain.setValueAtTime(0, startTime);
+                    gain.gain.linearRampToValueAtTime(gainScale, startTime + attackSec);
+                } else {
+                    gain.gain.setValueAtTime(gainScale, startTime);
+                }
                 // Effective sample length after pitch-shift.
                 const sampleSec = buf.duration / rate;
                 // Cap ring-out so successive notes don't pile up into mush.
@@ -4240,6 +4272,7 @@
             const instrument = document.getElementById('sound-select').value;
             const pianoType = document.getElementById('piano-type-select').value;
             const pianoSamples = instrument === 'piano' && document.getElementById('piano-use-sample').checked;
+            const pianoSoftPedal = instrument === 'piano' && document.getElementById('piano-soft-pedal').checked;
             const reedType = document.getElementById('reed-select').value;
             const brandEl = document.getElementById('brand-select');
             const brand = brandEl ? brandEl.value : 'paul-co';
@@ -4253,6 +4286,7 @@
                 instrument,
                 pianoType,
                 pianoSamples,
+                pianoSoftPedal,
                 reedType,
                 brand,
                 leftCoupler,
@@ -4304,6 +4338,7 @@
                     key: p.key, onsetInterval: interval, noteDuration: dur,
                     instrument: p.instrument, pianoType: p.pianoType,
                     pianoSamples: p.pianoSamples,
+                    pianoSoftPedal: p.pianoSoftPedal,
                     reedType: p.reedType, brand: p.brand, leftCoupler: p.leftCoupler,
                 };
             }
@@ -4561,6 +4596,7 @@
                 instrument: p.instrument,
                 pianoType: p.pianoType,
                 pianoSamples: p.pianoSamples,
+                pianoSoftPedal: p.pianoSoftPedal,
                 reedType: p.reedType,
                 brand: p.brand,
                 leftCoupler: p.leftCoupler,
@@ -4846,7 +4882,7 @@
         }
 
         function renderPaltaTimelineOnContext(ctx, dest, timeline, ip) {
-            const { key, onsetInterval, noteDuration, instrument, pianoType, pianoSamples, reedType, brand, leftCoupler } = ip;
+            const { key, onsetInterval, noteDuration, instrument, pianoType, pianoSamples, pianoSoftPedal, reedType, brand, leftCoupler } = ip;
             for (let i = 0; i < timeline.length; i++) {
                 const ev = timeline[i];
                 const evTime = i * onsetInterval;
@@ -4858,8 +4894,8 @@
                         const reverb = getHarmoniumReverbBus(ctx, dest);
                         createHarmoniumNote(ctx, reverb.input, freq, evTime, noteDuration, reedType, leftCoupler, false, brand);
                     } else if (pianoSamples) {
-                        const pbus = getPianoBus(ctx, dest);
-                        createSampledPianoNote(ctx, pbus.input, freq, evTime, noteDuration, leftCoupler, false);
+                        const pbus = getPianoBus(ctx, dest, pianoSoftPedal);
+                        createSampledPianoNote(ctx, pbus.input, freq, evTime, noteDuration, leftCoupler, false, 1.0, pianoSoftPedal);
                     } else {
                         createPianoNote(ctx, dest, freq, evTime, noteDuration, pianoType, leftCoupler, false);
                     }
@@ -6295,6 +6331,8 @@
         function onPianoUseSampleChange() {
             const useSample = document.getElementById('piano-use-sample').checked;
             document.getElementById('piano-type-label').style.display = useSample ? 'none' : '';
+            // Soft pedal only applies to the realistic-sample path.
+            document.getElementById('piano-soft-pedal-label').style.display = useSample ? '' : 'none';
             if (useSample) preloadPianoSamples();
         }
         document.getElementById('piano-use-sample').addEventListener('change', onPianoUseSampleChange);
@@ -6303,6 +6341,7 @@
         function onMidiPianoUseSampleChange() {
             const useSample = document.getElementById('midi-piano-use-sample').checked;
             document.getElementById('midi-piano-type-label').style.display = useSample ? 'none' : '';
+            document.getElementById('midi-piano-soft-pedal-label').style.display = useSample ? '' : 'none';
             if (useSample) preloadPianoSamples();
         }
         document.getElementById('midi-piano-use-sample').addEventListener('change', onMidiPianoUseSampleChange);
@@ -6512,6 +6551,7 @@
                 instrument: document.getElementById('midi-sound-select').value,
                 pianoType: document.getElementById('midi-piano-type-select').value,
                 pianoSamples: document.getElementById('midi-piano-use-sample').checked,
+                pianoSoftPedal: document.getElementById('midi-piano-soft-pedal').checked,
                 reedType: document.getElementById('midi-reed-select').value,
                 brand: brandEl ? brandEl.value : 'paul-co',
                 leftCoupler: coupler === 'left',
@@ -6571,9 +6611,9 @@
                 // Register-dependent duration: bass ~3.2s, middle ~1.6s, treble ~0.7s
                 const pianoDur = Math.max(0.6, 3.6 * Math.pow(0.98, adjustedNote - 21));
                 if (params.instrument === 'piano' && params.pianoSamples && _pianoSampleCache.size > 0) {
-                    const pbus = getPianoBus(midiAudioCtx, midiCompressor);
+                    const pbus = getPianoBus(midiAudioCtx, midiCompressor, params.pianoSoftPedal);
                     masterGain.connect(pbus.input);
-                    oscillators = createSampledPianoNote(midiAudioCtx, masterGain, freq, now, pianoDur, params.leftCoupler, params.rightCoupler);
+                    oscillators = createSampledPianoNote(midiAudioCtx, masterGain, freq, now, pianoDur, params.leftCoupler, params.rightCoupler, 1.0, params.pianoSoftPedal);
                 } else {
                     masterGain.connect(midiCompressor);
                     oscillators = createPianoNote(midiAudioCtx, masterGain, freq, now, pianoDur, params.pianoType, params.leftCoupler, params.rightCoupler);
