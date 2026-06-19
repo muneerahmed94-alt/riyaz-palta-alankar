@@ -177,10 +177,11 @@
         pitch-shifted via AudioBufferSourceNode.playbackRate. Decoded once
         with a live AudioContext, cached, then reused inside
         OfflineAudioContext for Listen/Practice rendering.
-        Voicing chain (per-context cached bus): make-up gain → +1.5 dB
-        low-shelf @ 200 Hz (warmth) → -4.5 dB high-shelf @ 3.5 kHz (mellow,
-        non-piercing) → dry + a gentle (~0.09) small-room convolution
-        reverb for ambience. Sustain shaping balances continuity against
+        Voicing chain (per-context cached bus): make-up gain → +2.5 dB
+        low-shelf @ 200 Hz (bass weight) → +2.5 dB peak @ 320 Hz (low-mid
+        punch) → -6.5 dB high-shelf @ 2.8 kHz (mellow, not bright) →
+        -2 dB notch @ 4.5 kHz (tame hammer harshness) → dry + a gentle
+        (~0.09) small-room convolution reverb for ambience. Sustain shaping balances continuity against
         mush: the effective ring is first capped at ~1.4× the onset interval
         at the call site (notes can bleed gently into the next onset), then
         held flat for 80 % of that capped duration and ramped out over a
@@ -3115,16 +3116,18 @@
             return best;
         }
         // Per-context piano voicing bus (default voicing):
-        //   make-up gain (1.4×)
-        //   → +1.5 dB low-shelf @ 200 Hz   (warmth)
-        //   → -4.5 dB high-shelf @ 3.5 kHz (mellow, not piercing)
-        //   → flat presence band (kept as a future tuning hook)
+        //   make-up gain (1.5×)
+        //   → +2.5 dB low-shelf @ 200 Hz    (bass weight)
+        //   → +2.5 dB peak    @ 320 Hz Q=1.0 (low-mid punch / body)
+        //   → -6.5 dB high-shelf @ 2.8 kHz   (kill brightness)
+        //   → -2.0 dB peak    @ 4.5 kHz Q=1.6 (notch hammer harshness)
         //   → dry path → dest
         //   → wet path: HP 350 / LP 5 kHz / convolver (room IR) / 0.09× → dest
-        // Soft-pedal voicing (when softPedal=true): make-up gain 1.05×,
-        // low-shelf +0.5 dB @ 200 Hz, high-shelf -9 dB @ 2.2 kHz — darker,
-        // quieter, felt-piano feel. Plus a 40 ms gain fade-in per note in
-        // createSampledPianoNote that softens the hammer attack.
+        // Soft-pedal voicing (when softPedal=true): make-up gain 1.15×,
+        // low-shelf +1.5 dB, punch +1.5 dB, high-shelf -10.5 dB @ 1.8 kHz,
+        // harshness notch -3.5 dB. Even darker / quieter felt-piano feel.
+        // Plus a 40 ms gain fade-in per note in createSampledPianoNote
+        // that softens the hammer attack.
         // Tuned to be warm but not mushy: very low wet send and a high-pass
         // on the wet so reverb doesn't pile up low-mid mud during dense
         // sustains. Reuses the harmonium room IR (it's a generic small-room
@@ -3138,35 +3141,46 @@
             if (cached && cached.finalDest === finalDest && cached[variant]) return cached[variant];
             const input = ctx.createGain();
             // Soft pedal lowers level slightly (real una corda voicing).
-            input.gain.value = softPedal ? 1.05 : 1.4;
+            input.gain.value = softPedal ? 1.15 : 1.5;
 
             const lowShelf = ctx.createBiquadFilter();
             lowShelf.type = 'lowshelf';
             lowShelf.frequency.value = 200;
-            lowShelf.gain.value = softPedal ? 0.5 : 1.5;          // less low-end push
+            lowShelf.gain.value = softPedal ? 1.5 : 2.5;          // bass weight
 
-            // Tame brightness — gentle high-shelf cut above ~3.5 kHz softens
-            // the hammer attack and harmonics without dulling pitch clarity.
-            // Soft pedal pushes this further: bigger cut at a lower corner
-            // for a darker, felt-like timbre.
+            // Low-mid punch band — adds body and "thump" character without
+            // brightness. This is where real-piano power lives.
+            const punch = ctx.createBiquadFilter();
+            punch.type = 'peaking';
+            punch.frequency.value = 320;
+            punch.Q.value = 1.0;
+            punch.gain.value = softPedal ? 1.5 : 2.5;
+
+            // Tame brightness — high-shelf cut softens the hammer attack and
+            // harmonics. Default voicing is now darker than before; soft
+            // pedal goes further into felt-piano territory.
             const highShelf = ctx.createBiquadFilter();
             highShelf.type = 'highshelf';
-            highShelf.frequency.value = softPedal ? 2200 : 3500;
-            highShelf.gain.value = softPedal ? -9.0 : -4.5;
+            highShelf.frequency.value = softPedal ? 1800 : 2800;
+            highShelf.gain.value = softPedal ? -10.5 : -6.5;
 
-            const presence = ctx.createBiquadFilter();
-            presence.type = 'peaking';
-            presence.frequency.value = 3200;
-            presence.Q.value = 0.8;
-            presence.gain.value = 0;                              // flat
+            // Notch a narrow harshness band that the source samples have
+            // around 4–5 kHz (hammer-strike component). Pulling this back
+            // a couple dB removes "bite" without dulling overall presence.
+            const harshNotch = ctx.createBiquadFilter();
+            harshNotch.type = 'peaking';
+            harshNotch.frequency.value = 4500;
+            harshNotch.Q.value = 1.6;
+            harshNotch.gain.value = softPedal ? -3.5 : -2.0;
 
             input.connect(lowShelf);
-            lowShelf.connect(highShelf);
-            highShelf.connect(presence);
+            lowShelf.connect(punch);
+            punch.connect(highShelf);
+            highShelf.connect(harshNotch);
 
             const dryGain = ctx.createGain();
             dryGain.gain.value = 0.85;
-            presence.connect(dryGain);
+            harshNotch.connect(dryGain);
             dryGain.connect(finalDest);
 
             // Wet path — small-room reverb for natural depth.
@@ -3183,7 +3197,7 @@
             convolver.normalize = true;
             const wetGain = ctx.createGain();
             wetGain.gain.value = 0.09;                            // gentle ambience
-            presence.connect(wetHP);
+            harshNotch.connect(wetHP);
             wetHP.connect(wetLP);
             wetLP.connect(convolver);
             convolver.connect(wetGain);
