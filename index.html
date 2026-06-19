@@ -4435,9 +4435,14 @@
             const repeatCbEarly = document.getElementById(repeatId);
             const repeatOn = !!(repeatCbEarly && repeatCbEarly.checked);
 
-            const renderPromise = listenReps > 1
-                ? renderPaltaPerBlock(sampleRate, currentPaltaData, p, ip, mode, listenReps).then(r => r.buffer)
-                : renderPaltaBuffer(sampleRate, tl, ip, renderSec);
+            // Always use the per-block render path — it dedupes identical
+            // lines (e.g. when a palta repeats) and renders unique blocks
+            // in parallel. Even at reps=1, splitting one big offline render
+            // into several smaller parallel ones is faster wall-clock,
+            // especially with the realistic-sample voicing chain.
+            const renderPromise = renderPaltaPerBlock(
+                sampleRate, currentPaltaData, p, ip, mode, listenReps
+            ).then(r => r.buffer);
 
             renderPromise.then(async (buffer) => {
                 if (!playbackState || playbackState.mediaName !== 'palta') return;
@@ -4646,9 +4651,11 @@
                 },
             });
 
-            const practiceRenderPromise = reps > 1
-                ? renderPaltaPerBlock(sampleRate, currentPaltaData, p, ip, mode, reps, true).then(r => r.buffer)
-                : renderPracticeBuffer(sampleRate, tl, ip, renderSec);
+            // Always use per-block render: dedupes identical lines and
+            // renders unique blocks in parallel.
+            const practiceRenderPromise = renderPaltaPerBlock(
+                sampleRate, currentPaltaData, p, ip, mode, reps, true
+            ).then(r => r.buffer);
 
             practiceRenderPromise.then(async (buffer) => {
                 if (!playbackState || playbackState.mediaName !== 'palta') return;
@@ -4822,7 +4829,11 @@
                 seen.add(b.key);
                 uniqueBlocks.push(b);
             }
-            for (const b of uniqueBlocks) {
+            // Render unique blocks in parallel — each block becomes its own
+            // OfflineAudioContext, and the browser can pipeline several
+            // renders simultaneously (especially big wins when there are
+            // many unique lines or slow per-note synthesis).
+            await Promise.all(uniqueBlocks.map(async (b) => {
                 const blockSec = b.slotCount * onsetInterval;
                 if (b.kind === 'silent') {
                     // Silent block: just metronome clicks per slot, no
@@ -4837,7 +4848,7 @@
                     const buf = await renderPaltaBuffer(sampleRate, b.events, ip, renderSec);
                     renderedMap.set(b.key, buf);
                 }
-            }
+            }));
 
             // Assemble destination buffer via overlap-add.
             const out = new Float32Array(totalLen);
