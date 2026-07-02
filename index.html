@@ -168,30 +168,43 @@
   SOUND SYNTHESIS:
   - Piano: Two modes selectable by a "Realistic" checkbox (default on),
     plus an optional "Soft pedal" toggle on the realistic path:
-      Realistic — Multisampled grand piano MP3s from
-        nbrosowsky.github.io/tonejs-instruments/samples/piano/ (~160 KB per
-        note — 2.6× the bitrate of the tonejs Salamander mirror, with a
-        richer velocity layer that has natural punch built in). Sample density
-        is per-semitone in octaves 1–3 (where pitch-shift artifacts are most
-        audible) and ~every 3 semitones above that. Intermediate notes are
-        pitch-shifted via AudioBufferSourceNode.playbackRate. Decoded once
-        with a live AudioContext, cached, then reused inside
+      Realistic — The official Salamander Grand V3 sample set, a real,
+        well-recorded acoustic grand hosted at tonejs.github.io/audio/
+        salamander/. Sampled every minor third across the FULL keyboard
+        (A0–C8, 30 files), so any played note is never more than ~1.5
+        semitones from a real sample — pitch-shift artifacts are minimal and
+        the recorded tone (attack, decay, body) comes through. Intermediate
+        notes are pitch-shifted via AudioBufferSourceNode.playbackRate.
+        Decoded once with a live AudioContext, cached, then reused inside
         OfflineAudioContext for Listen/Practice rendering.
-        Voicing chain (per-context cached bus): make-up gain → +2.5 dB
-        low-shelf @ 200 Hz (bass weight) → -6 dB high-shelf @ 2.8 kHz
-        (mellow, not bright) → +2.5 dB peak @ 320 Hz (low-mid punch) →
-        dry + a gentle (~0.09) small-room convolution reverb for ambience. Sustain shaping balances continuity against
-        mush: the effective ring is first capped at ~1.4× the onset interval
-        at the call site (notes can bleed gently into the next onset), then
-        held flat for 80 % of that capped duration and ramped out over a
-        soft tail (release ends at duration + 0.35 s, sample length
-        permitting). Slow tempos sustain naturally; dense fast lines stay
-        articulate.
+        Voicing goal is "powerful yet soft and warm" — achieved with more
+        than EQ. Per-context cached bus (default variant):
+          input gain 1.25×
+          → +2.0 dB low-shelf @ 220 Hz          (warmth/body)
+          → -3.5 dB high-shelf @ 3.2 kHz         (mellow top, not muffled)
+          → -3.0 dB peak @ 4.5 kHz Q=0.7         (tame "clink"/harshness)
+          → +2.0 dB peak @ 300 Hz Q=0.9          (round low-mid body)
+          → soft tanh saturation (WaveShaper, 4x oversample, drive 1.6)
+                                                  (harmonic "tube" warmth +
+                                                   perceived power, no treble)
+          → gentle bus compression (ratio 2.5:1, knee 30, thr -20 dB,
+             attack 12 ms, release 0.28 s)        (glue + lifted sustain; the
+                                                   biggest "powerful-yet-soft"
+                                                   lever) → +1.4× make-up gain
+          → dry (0.85×) → dest
+          → wet: HP 200 / LP 4.2 kHz / warm room-bloom convolution IR
+             (getPianoHallIR, 1.6 s, T60 1.1 s) / 0.09× → dest
+        Each note also gets a 12 ms gain fade-in that softens the hammer
+        transient. Sustain shaping balances continuity against mush: the
+        effective ring is capped at ~1.4× the onset interval at the call site,
+        held flat for 80 % of that, then ramped out over a soft tail (release
+        ends at duration + 0.15 s, sample length permitting).
         Soft pedal — alternate voicing modeled on una corda / felt-piano
-        timbre: lower make-up gain (1.05× vs 1.4×), reduced low-shelf
-        (+0.5 dB), bigger high-shelf cut (-9 dB @ 2.2 kHz vs -4.5 dB @
-        3.5 kHz), and a 40 ms gain fade-in per note to soften the hammer
-        attack. Bus is cached per (ctx, soft-pedal-state).
+        timbre: lower input gain (1.15×), reduced low-shelf (+1.5 dB), bigger
+        high-shelf cut (-9 dB @ 2.0 kHz), lighter saturation (drive 1.1),
+        gentler compression + lower reverb send (0.07×), and a 40 ms gain
+        fade-in per note for an even softer hammer attack. Bus is cached per
+        (ctx, soft-pedal-state).
       Synth     — additive synthesis with inharmonicity, hammer noise, body
         resonance. Three variants: Grand, Upright, Electric/Rhodes.
   - Harmonium: Source-filter synthesis after Puranik & Scavone (DAFx 2023).
@@ -2742,7 +2755,7 @@
         // FREQUENCY MAPPING:
         //   Swaras use the major scale (Sa=unison, Re=+2, Ga=+4, Ma=+5, Pa=+7,
         //   Dha=+9, Ni=+11 semitones). The base frequency of Sa is set by the
-        //   key selector (C=261.63 Hz, etc.).
+        //   key selector (C=130.81 Hz / C3, etc.).
         // ══════════════════════════════════════════════════════
 
         // ══════════════════════════════════════════════════════
@@ -3017,11 +3030,13 @@
             { shuddh: 11, variant: 10, type: 'komal' }, // 6: Ni — Komal Ni = 10 semitones
         ];
 
-        // Base frequency of Sa in each key (octave 4)
+        // Base frequency of Sa in each key (octave 3 — madhya-saptak Sa sits
+        // at C3 for 'C', an octave below middle C, matching how these paltas
+        // are practised/sung).
         const KEY_BASE_FREQ = {
-            'C': 261.63, 'C#': 277.18, 'D': 293.66, 'D#': 311.13,
-            'E': 329.63, 'F': 349.23, 'F#': 369.99, 'G': 392.00,
-            'G#': 415.30, 'A': 440.00, 'A#': 466.16, 'B': 493.88
+            'C': 130.81, 'C#': 138.59, 'D': 146.83, 'D#': 155.56,
+            'E': 164.81, 'F': 174.61, 'F#': 185.00, 'G': 196.00,
+            'G#': 207.65, 'A': 220.00, 'A#': 233.08, 'B': 246.94
         };
 
         // Convert internal note number to Hz frequency
@@ -3033,35 +3048,40 @@
         }
 
         // ── Realistic Grand Piano sample system ─────────
-        // Higher-quality piano sample set hosted by nbrosowsky/tonejs-instruments
-        // (~160 KB mp3s vs ~60 KB on the tonejs Salamander mirror — 2.6× the
-        // bitrate plus a fuller velocity layer, so notes have real punch and
-        // body without needing heavy EQ).
-        // The sample set covers every semitone in octaves 1–3 (where
-        // pitch-shifting artifacts are most audible) and ~every 3 semitones
-        // higher up (where the ear is more forgiving) — 46 files total,
-        // ~7 MB cached on first Listen press.
+        // Uses the official Salamander Grand V3 set (a real, well-recorded
+        // acoustic grand) hosted at tonejs.github.io/audio/salamander/.
+        // The set is sampled every minor third across the FULL keyboard
+        // (A0–C8, 30 files), so any played note is at most ~1.5 semitones from
+        // a real recorded sample — pitch-shift artifacts stay minimal and the
+        // natural recorded tone comes through. Tens of MB cached on first
+        // Listen press.
         // We fetch the set once, decode with a live AudioContext, and cache
         // the AudioBuffers globally. For offline playback rendering we wire
         // the cached AudioBuffers into BufferSourceNodes on the
         // OfflineAudioContext (AudioBuffers are portable across contexts;
         // only nodes are not). For notes between sampled pitches we set
         // playbackRate = targetFreq / sampleFreq.
-        const PIANO_SAMPLE_BASE = 'https://nbrosowsky.github.io/tonejs-instruments/samples/piano/';
+        const PIANO_SAMPLE_BASE = 'https://tonejs.github.io/audio/salamander/';
         const PIANO_SAMPLES = (() => {
             const noteToSemitone = { C:0, Cs:1, D:2, Ds:3, E:4, F:5, Fs:6, G:7, Gs:8, A:9, As:10, B:11 };
             const A4 = 440;
-            // Source set has every semitone in octaves 1–3 (where pitch-shifting
-            // artifacts are most audible), and ~every 3 semitones higher up
-            // (where the ear is more forgiving). Names use sharp form (e.g. Ds3).
+            // Official Salamander Grand V3 set: a real, well-recorded grand
+            // piano sampled every minor third across the FULL keyboard
+            // (A0–C8). Full-keyboard coverage means pitch-shifting between
+            // sampled notes is never more than ~1.5 semitones, so artifacts
+            // are minimal and the natural recorded tone comes through. 30
+            // files, ~tens of MB cached on first Listen press. Names use
+            // sharp form (e.g. Ds3).
             const noteList = [
-                ['C',1],['Cs',1],['D',1],['Ds',1],['E',1],['F',1],['Fs',1],['G',1],['Gs',1],['A',1],['As',1],['B',1],
-                ['C',2],['Cs',2],['D',2],['Ds',2],['E',2],['F',2],['Fs',2],['G',2],['Gs',2],['A',2],['As',2],['B',2],
-                ['C',3],['Cs',3],['D',3],['Ds',3],['E',3],['F',3],['Fs',3],['G',3],['Gs',3],['A',3],['As',3],['B',3],
-                ['C',4],['D',4],['F',4],['A',4],
-                ['C',5],['E',5],['A',5],
-                ['C',6],['E',6],['A',6],
-                ['C',7],
+                ['A',0],
+                ['C',1],['Ds',1],['Fs',1],['A',1],
+                ['C',2],['Ds',2],['Fs',2],['A',2],
+                ['C',3],['Ds',3],['Fs',3],['A',3],
+                ['C',4],['Ds',4],['Fs',4],['A',4],
+                ['C',5],['Ds',5],['Fs',5],['A',5],
+                ['C',6],['Ds',6],['Fs',6],['A',6],
+                ['C',7],['Ds',7],['Fs',7],['A',7],
+                ['C',8],
             ];
             return noteList.map(([note, octave]) => {
                 const semitone = noteToSemitone[note];
@@ -3114,78 +3134,182 @@
             }
             return best;
         }
-        // Per-context piano voicing bus (default voicing):
-        //   make-up gain (1.5×)
-        //   → +2.5 dB low-shelf @ 200 Hz    (bass weight)
-        //   → -6.0 dB high-shelf @ 2.8 kHz  (kill brightness)
-        //   → +2.5 dB peak @ 320 Hz Q=0.9   (low-mid punch / body)
-        //   → dry path → dest
-        //   → wet path: HP 350 / LP 5 kHz / convolver (room IR) / 0.09× → dest
-        // Soft-pedal voicing (when softPedal=true): make-up gain 1.15×,
-        // low-shelf +1.5 dB, high-shelf -9 dB @ 2 kHz, punch +1.5 dB —
-        // darker, quieter, felt-piano feel. Plus a 40 ms gain fade-in per
-        // note in createSampledPianoNote that softens the hammer attack.
-        // Tuned to be warm but not mushy: very low wet send and a high-pass
-        // on the wet so reverb doesn't pile up low-mid mud during dense
-        // sustains. Reuses the harmonium room IR (it's a generic small-room
-        // synthetic noise IR, not harmonium-specific) so we don't duplicate
-        // the buffer. Bus is cached per (ctx, soft-pedal-state) so toggling
-        // mid-session swaps voicings cleanly.
+        // Per-context piano voicing bus (default voicing) — goal is "powerful
+        // yet soft and warm", built with more than EQ:
+        //   input gain 1.25×
+        //   → +2.0 dB low-shelf @ 220 Hz    (warmth/body)
+        //   → -3.5 dB high-shelf @ 3.2 kHz  (mellow top, not muffled)
+        //   → -3.0 dB peak @ 4.5 kHz Q=0.7  (tame "clink"/harshness)
+        //   → +2.0 dB peak @ 300 Hz Q=0.9   (round low-mid body)
+        //   → soft tanh saturation          (harmonic warmth + power, no treble)
+        //   → gentle bus compression (2.5:1) + make-up gain (glue + sustain)
+        //   → dry path (0.85×) → dest
+        //   → wet path: HP 200 / LP 4.2 kHz / warm hall-bloom IR
+        //     (getPianoHallIR, 1.6 s) / 0.09× → dest
+        // Soft-pedal voicing (when softPedal=true): lower input gain (1.15×),
+        // low-shelf +1.5 dB, high-shelf -9 dB @ 2 kHz, no high dip/punch,
+        // lighter saturation, gentler compression, lower reverb send (0.07×) —
+        // darker, quieter, felt-piano feel. Plus a 40 ms gain fade-in per note
+        // in createSampledPianoNote that softens the hammer attack (the
+        // default uses a 12 ms fade-in).
+        // Tuned to be warm but not mushy: modest wet send and a high-pass on
+        // the wet so reverb doesn't pile up low-mid mud during dense sustains.
+        // The piano has its own warm hall-bloom IR (getPianoHallIR) separate
+        // from the harmonium's drier room IR. Bus is cached per (ctx,
+        // soft-pedal-state) so toggling mid-session swaps voicings cleanly.
+        // Soft-saturation curve for a WaveShaperNode. A gentle tanh transfer
+        // adds even/odd harmonics that read as "tube warmth" and perceived
+        // power/loudness without adding treble — the key to sounding big yet
+        // soft. `drive` is small (subtle) so it colours rather than distorts.
+        const _pianoSatCurveCache = new Map();
+        function getPianoSaturationCurve(drive) {
+            const key = drive.toFixed(3);
+            if (_pianoSatCurveCache.has(key)) return _pianoSatCurveCache.get(key);
+            const n = 2048;
+            const curve = new Float32Array(n);
+            const k = drive;
+            for (let i = 0; i < n; i++) {
+                const x = (i / (n - 1)) * 2 - 1;       // -1..1
+                // Normalised tanh soft-clip; divide by tanh(k) to keep unity
+                // gain at full scale so we don't lose level.
+                curve[i] = Math.tanh(k * x) / Math.tanh(k);
+            }
+            _pianoSatCurveCache.set(key, curve);
+            return curve;
+        }
+
+        // Warmer, longer reverb IR for the piano — a small concert-hall bloom
+        // (vs the short dry harmonium room). Longer T60 and a heavier HF
+        // roll-off in the tail give the lush, rounded ambience that makes a
+        // grand sound big and soft rather than dry and boxy.
+        const _pianoHallIRCache = new WeakMap();
+        function getPianoHallIR(audioCtx) {
+            const cached = _pianoHallIRCache.get(audioCtx);
+            if (cached) return cached;
+            const sr = audioCtx.sampleRate;
+            const duration = 1.6;                     // seconds — modest room bloom (kept short to avoid wash/echo)
+            const length = Math.floor(sr * duration);
+            const buffer = audioCtx.createBuffer(2, length, sr);
+            const decayT60 = 1.1;                     // quicker decay — warmth without a lingering tail
+            const decayK = Math.log(1000) / (decayT60 * sr);
+            for (let ch = 0; ch < 2; ch++) {
+                const data = buffer.getChannelData(ch);
+                let lp = 0;
+                // Heavier lowpass than the harmonium IR → darker, warmer tail.
+                const lpCoef = ch === 0 ? 0.22 : 0.20; // slight L/R diff = width
+                // Short pre-delay before the tail builds → sense of space.
+                const preDelay = Math.floor(sr * (ch === 0 ? 0.012 : 0.015));
+                for (let i = 0; i < length; i++) {
+                    if (i < preDelay) { data[i] = 0; continue; }
+                    const noise = (Math.random() * 2 - 1);
+                    lp = lp * (1 - lpCoef) + noise * lpCoef;
+                    const envelope = Math.exp(-decayK * (i - preDelay));
+                    data[i] = lp * envelope * 0.5;
+                }
+            }
+            _pianoHallIRCache.set(audioCtx, buffer);
+            return buffer;
+        }
+
         const _pianoBusCache = new WeakMap(); // ctx → { default, softPedal, finalDest }
         function getPianoBus(ctx, finalDest, softPedal) {
             const variant = softPedal ? 'softPedal' : 'default';
             const cached = _pianoBusCache.get(ctx);
             if (cached && cached.finalDest === finalDest && cached[variant]) return cached[variant];
             const input = ctx.createGain();
-            // Soft pedal lowers level slightly (real una corda voicing).
-            input.gain.value = softPedal ? 1.15 : 1.5;
+            // Default voicing: warm, soft and rounded — like a mellow recorded
+            // grand rather than a bright, present one. We roll off the harsh
+            // upper harmonics with a gentle high-shelf and add a little low-mid
+            // body, but nowhere near the old heavy -6 dB cut that made it sound
+            // muffled/synthetic. The soft-pedal variant goes darker still.
+            input.gain.value = softPedal ? 1.15 : 1.25;
 
-            // Bass weight + warmth.
+            // Bass/low-mid weight for warmth and body.
             const lowShelf = ctx.createBiquadFilter();
             lowShelf.type = 'lowshelf';
-            lowShelf.frequency.value = 200;
-            lowShelf.gain.value = softPedal ? 1.5 : 2.5;
+            lowShelf.frequency.value = 220;
+            lowShelf.gain.value = softPedal ? 1.5 : 2.0;
 
-            // Tame brightness — high-shelf cut softens hammer attack and
-            // harmonics. Soft pedal pushes this further (felt-piano).
+            // Soften the top — gentle high-shelf roll-off rounds off hammer
+            // harshness and glassy harmonics for a mellow tone. Soft pedal
+            // pushes this much further (felt-piano).
             const highShelf = ctx.createBiquadFilter();
             highShelf.type = 'highshelf';
-            highShelf.frequency.value = softPedal ? 2000 : 2800;
-            highShelf.gain.value = softPedal ? -9.0 : -6.0;
+            highShelf.frequency.value = softPedal ? 2000 : 3200;
+            highShelf.gain.value = softPedal ? -9.0 : -3.5;
 
-            // Repurposed: low-mid PUNCH peak at 320 Hz (was flat presence).
-            // This is where real-piano body/thump lives — a small boost adds
-            // power without any brightness.
+            // Extra brightness tamer: a wide gentle dip around 4.5 kHz where
+            // the "clink"/harshness of a bright grand lives, for a rounder
+            // attack. (Default only.)
+            const highDip = ctx.createBiquadFilter();
+            highDip.type = 'peaking';
+            highDip.frequency.value = 4500;
+            highDip.Q.value = 0.7;
+            highDip.gain.value = softPedal ? 0.0 : -3.0;
+
+            // Low-mid body/punch peak at 300 Hz — adds roundness and warmth.
             const presence = ctx.createBiquadFilter();
             presence.type = 'peaking';
-            presence.frequency.value = 320;
+            presence.frequency.value = 300;
             presence.Q.value = 0.9;
-            presence.gain.value = softPedal ? 1.5 : 2.5;
+            presence.gain.value = softPedal ? 1.5 : 2.0;
 
             input.connect(lowShelf);
             lowShelf.connect(highShelf);
-            highShelf.connect(presence);
+            highShelf.connect(highDip);
+            highDip.connect(presence);
+
+            // Soft saturation — subtle tanh warmth. Even a small amount adds
+            // harmonic density that reads as "power" and "warmth" without any
+            // added treble. Sandwiched between a small pre-gain (drive it a
+            // touch) and unity so it colours rather than distorts.
+            const satPre = ctx.createGain();
+            satPre.gain.value = 1.0;
+            const shaper = ctx.createWaveShaper();
+            shaper.curve = getPianoSaturationCurve(softPedal ? 1.1 : 1.6);
+            shaper.oversample = '4x';
+            presence.connect(satPre);
+            satPre.connect(shaper);
+
+            // Gentle bus compression — the biggest "powerful yet soft" lever.
+            // A low ratio with a soft knee gently lifts the body/sustain of
+            // each note and glues the line together, so runs feel full and
+            // effortless instead of spiky. Slow-ish attack keeps the natural
+            // hammer transient; medium release breathes with the phrase.
+            const comp = ctx.createDynamicsCompressor();
+            comp.threshold.value = softPedal ? -22 : -20;
+            comp.knee.value = 30;                                 // soft knee
+            comp.ratio.value = 2.5;                               // gentle
+            comp.attack.value = 0.012;                            // keep attack
+            comp.release.value = 0.28;
+            shaper.connect(comp);
+
+            // Make-up gain to restore level lost to compression.
+            const makeup = ctx.createGain();
+            makeup.gain.value = softPedal ? 1.25 : 1.4;
+            comp.connect(makeup);
 
             const dryGain = ctx.createGain();
             dryGain.gain.value = 0.85;
-            presence.connect(dryGain);
+            makeup.connect(dryGain);
             dryGain.connect(finalDest);
 
-            // Wet path — small-room reverb for natural depth.
+            // Wet path — warm hall bloom for lush, rounded depth. Fed post
+            // saturation+compression so the reverb blooms off the full body.
             const wetHP = ctx.createBiquadFilter();
             wetHP.type = 'highpass';
-            wetHP.frequency.value = 350;                          // cut low-mid mud
+            wetHP.frequency.value = 200;                          // keep more low warmth in the tail
             wetHP.Q.value = 0.7;
             const wetLP = ctx.createBiquadFilter();
             wetLP.type = 'lowpass';
-            wetLP.frequency.value = 5000;
+            wetLP.frequency.value = 4200;                         // darker, warmer tail
             wetLP.Q.value = 0.5;
             const convolver = ctx.createConvolver();
-            convolver.buffer = getHarmoniumRoomIR(ctx);
+            convolver.buffer = getPianoHallIR(ctx);
             convolver.normalize = true;
             const wetGain = ctx.createGain();
-            wetGain.gain.value = 0.09;                            // gentle ambience
-            presence.connect(wetHP);
+            wetGain.gain.value = softPedal ? 0.07 : 0.09;         // subtle ambience only — enough for depth, not a wash
+            makeup.connect(wetHP);
             wetHP.connect(wetLP);
             wetLP.connect(convolver);
             convolver.connect(wetGain);
@@ -3237,7 +3361,10 @@
             // the hammer-strike transient is less prominent. (Skipping into
             // the sample changes pitch via playbackRate, so we ramp gain
             // instead.)
-            const attackSec = softPedal ? 0.04 : 0;
+            // A short fade-in softens the hammer-strike transient so notes
+            // bloom in gently (rounded) rather than clicking. Soft pedal uses
+            // a longer fade; the default uses a small one.
+            const attackSec = softPedal ? 0.04 : 0.012;
             function scheduleOne(targetFreq, gainScale) {
                 const sample = findNearestPianoSample(targetFreq);
                 const buf = _pianoSampleCache.get(sample.name);
@@ -3260,7 +3387,7 @@
                 // connect musically instead of feeling chopped.
                 const holdSec = Math.min(sampleSec, duration * 0.80);
                 const releaseStart = startTime + holdSec;
-                const releaseEnd = startTime + Math.min(sampleSec, duration + 0.35);
+                const releaseEnd = startTime + Math.min(sampleSec, duration + 0.15);
                 gain.gain.setValueAtTime(gainScale, releaseStart);
                 gain.gain.exponentialRampToValueAtTime(0.0001, releaseEnd);
                 src.connect(gain);
@@ -5229,7 +5356,11 @@
 
         function getTanpuraStringFreqs() {
             const key = document.getElementById('key-select').value;
-            const baseFreq = KEY_BASE_FREQ[key];
+            // KEY_BASE_FREQ anchors palta Sa at C3 (octave 3). The tanpura
+            // traditionally drones an octave higher than that, so multiply by
+            // 2 to keep the drone at its usual pitch (female Sa ≈ C4, male ≈ C3)
+            // independent of the palta octave.
+            const baseFreq = KEY_BASE_FREQ[key] * 2;
             const pitch = document.getElementById('tanpura-pitch').value;
             const octaveMultiplier = pitch === 'male' ? 0.5 : 1;
             const saFreq = baseFreq * octaveMultiplier;
