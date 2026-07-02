@@ -168,15 +168,19 @@
   SOUND SYNTHESIS:
   - Piano: Two modes selectable by a "Realistic" checkbox (default on),
     plus an optional "Soft pedal" toggle on the realistic path:
-      Realistic — The official Salamander Grand V3 sample set, a real,
-        well-recorded acoustic grand hosted at tonejs.github.io/audio/
-        salamander/. Sampled every minor third across the FULL keyboard
-        (A0–C8, 30 files), so any played note is never more than ~1.5
-        semitones from a real sample — pitch-shift artifacts are minimal and
-        the recorded tone (attack, decay, body) comes through. Intermediate
-        notes are pitch-shifted via AudioBufferSourceNode.playbackRate.
-        Decoded once with a live AudioContext, cached, then reused inside
-        OfflineAudioContext for Listen/Practice rendering.
+      Realistic — Self-hosted MULTI-VELOCITY Salamander Grand V3 (CC-BY 3.0),
+        a real, well-recorded acoustic grand, bundled in samples/piano/ as Ogg
+        Vorbis. Sampled every minor third across the FULL keyboard (A0–C8, 30
+        pitches), each at 3 dynamic layers — v4 (soft/mellow), v8 (warm medium,
+        the palta default) and v13 (open/powerful). Playing softly on a real
+        piano changes the harmonic content, not just the level, so choosing the
+        recorded velocity layer (see pickPianoVelocityLayer) is what makes soft
+        notes genuinely mellow — no EQ can fake it. Palta playback uses a fixed
+        moderate velocity (warm medium layer); MIDI feeds real key velocity.
+        Any played note is ≤ ~1.5 semitones from a real sample; intermediate
+        pitches are shifted via AudioBufferSourceNode.playbackRate. Decoded once
+        with a live AudioContext, cached, then reused inside OfflineAudioContext
+        for Listen/Practice rendering.
         Voicing goal is "powerful yet soft and warm" — achieved with more
         than EQ. Per-context cached bus (default variant):
           input gain 1.25×
@@ -3048,48 +3052,56 @@
         }
 
         // ── Realistic Grand Piano sample system ─────────
-        // Uses the official Salamander Grand V3 set (a real, well-recorded
-        // acoustic grand) hosted at tonejs.github.io/audio/salamander/.
-        // The set is sampled every minor third across the FULL keyboard
-        // (A0–C8, 30 files), so any played note is at most ~1.5 semitones from
-        // a real recorded sample — pitch-shift artifacts stay minimal and the
-        // natural recorded tone comes through. Tens of MB cached on first
-        // Listen press.
-        // We fetch the set once, decode with a live AudioContext, and cache
+        // Self-hosted, multi-velocity Salamander Grand V3 (see PIANO_SAMPLES
+        // below for the full rationale). We fetch the set once from
+        // samples/piano/, decode with a live AudioContext, and cache
         // the AudioBuffers globally. For offline playback rendering we wire
         // the cached AudioBuffers into BufferSourceNodes on the
         // OfflineAudioContext (AudioBuffers are portable across contexts;
         // only nodes are not). For notes between sampled pitches we set
         // playbackRate = targetFreq / sampleFreq.
-        const PIANO_SAMPLE_BASE = 'https://tonejs.github.io/audio/salamander/';
+        // Self-hosted, MULTI-VELOCITY Salamander Grand V3 (CC-BY 3.0, Alexander
+        // Holm). Unlike the single-velocity CDN mirror we used before, this set
+        // ships several recordings PER NOTE at different playing dynamics. A
+        // note played softly on a real piano isn't just quieter — it has fewer
+        // upper harmonics and a softer hammer, which no EQ can fake. Picking the
+        // right velocity layer is therefore the biggest lever for a genuinely
+        // warm/soft-yet-real tone.
+        //
+        // We ship 3 of the original 16 layers to keep the repo lean while still
+        // giving real dynamic timbre:
+        //   v4  = soft   (mellow, felt-like — used for soft pedal / low velocity)
+        //   v8  = medium (the warm, singing default for palta playback)
+        //   v13 = loud   (open, powerful — high velocity / accents)
+        // Notes are sampled every minor third across the full keyboard (A0–C8,
+        // 30 pitches), so pitch-shift between samples is ≤ ~1.5 semitones.
+        // Files live in samples/piano/<note>v<layer>.ogg (Ogg Vorbis decodes
+        // natively in all target browsers; '#' in sharp names is URL-encoded).
+        const PIANO_SAMPLE_BASE = 'samples/piano/';
+        const PIANO_VELOCITY_LAYERS = [4, 8, 13];   // soft → loud, ascending
         const PIANO_SAMPLES = (() => {
-            const noteToSemitone = { C:0, Cs:1, D:2, Ds:3, E:4, F:5, Fs:6, G:7, Gs:8, A:9, As:10, B:11 };
+            const noteToSemitone = { C:0, 'C#':1, D:2, 'D#':3, E:4, F:5, 'F#':6, G:7, 'G#':8, A:9, 'A#':10, B:11 };
             const A4 = 440;
-            // Official Salamander Grand V3 set: a real, well-recorded grand
-            // piano sampled every minor third across the FULL keyboard
-            // (A0–C8). Full-keyboard coverage means pitch-shifting between
-            // sampled notes is never more than ~1.5 semitones, so artifacts
-            // are minimal and the natural recorded tone comes through. 30
-            // files, ~tens of MB cached on first Listen press. Names use
-            // sharp form (e.g. Ds3).
+            // Note names use sharp form matching the sample filenames (e.g. D#3).
             const noteList = [
                 ['A',0],
-                ['C',1],['Ds',1],['Fs',1],['A',1],
-                ['C',2],['Ds',2],['Fs',2],['A',2],
-                ['C',3],['Ds',3],['Fs',3],['A',3],
-                ['C',4],['Ds',4],['Fs',4],['A',4],
-                ['C',5],['Ds',5],['Fs',5],['A',5],
-                ['C',6],['Ds',6],['Fs',6],['A',6],
-                ['C',7],['Ds',7],['Fs',7],['A',7],
+                ['C',1],['D#',1],['F#',1],['A',1],
+                ['C',2],['D#',2],['F#',2],['A',2],
+                ['C',3],['D#',3],['F#',3],['A',3],
+                ['C',4],['D#',4],['F#',4],['A',4],
+                ['C',5],['D#',5],['F#',5],['A',5],
+                ['C',6],['D#',6],['F#',6],['A',6],
+                ['C',7],['D#',7],['F#',7],['A',7],
                 ['C',8],
             ];
             return noteList.map(([note, octave]) => {
                 const semitone = noteToSemitone[note];
                 const diff = (octave - 4) * 12 + (semitone - 9);
-                return { name: note + octave, freq: A4 * Math.pow(2, diff / 12) };
+                return { note: note + octave, freq: A4 * Math.pow(2, diff / 12) };
             });
         })();
-        const _pianoSampleCache = new Map(); // name → AudioBuffer
+        // Cache key is the full sample filename ("<note>v<layer>", e.g. "C4v8").
+        const _pianoSampleCache = new Map(); // filename → AudioBuffer
         let _pianoSampleDecoderCtx = null;
         function _getPianoDecoderCtx() {
             if (!_pianoSampleDecoderCtx) {
@@ -3097,11 +3109,13 @@
             }
             return _pianoSampleDecoderCtx;
         }
-        async function loadPianoSample(name) {
-            if (_pianoSampleCache.has(name)) return _pianoSampleCache.get(name);
-            const url = PIANO_SAMPLE_BASE + name + '.mp3';
+        function _pianoSampleFileName(note, layer) { return note + 'v' + layer; }
+        async function loadPianoSample(fileName) {
+            if (_pianoSampleCache.has(fileName)) return _pianoSampleCache.get(fileName);
+            // encodeURIComponent turns '#' into %23 so sharp-note files resolve.
+            const url = PIANO_SAMPLE_BASE + encodeURIComponent(fileName) + '.ogg';
             const resp = await fetch(url);
-            if (!resp.ok) throw new Error('Piano sample fetch failed: ' + name);
+            if (!resp.ok) throw new Error('Piano sample fetch failed: ' + fileName);
             const arrayBuf = await resp.arrayBuffer();
             const ctx = _getPianoDecoderCtx();
             const audioBuf = await new Promise((resolve, reject) => {
@@ -3111,26 +3125,43 @@
                     if (ret && typeof ret.then === 'function') ret.then(resolve, reject);
                 } catch (e) { reject(e); }
             });
-            _pianoSampleCache.set(name, audioBuf);
+            _pianoSampleCache.set(fileName, audioBuf);
             return audioBuf;
         }
         let _pianoPreloadPromise = null;
         function preloadPianoSamples() {
             if (_pianoPreloadPromise) return _pianoPreloadPromise;
-            _pianoPreloadPromise = Promise.all(
-                PIANO_SAMPLES.map(s => loadPianoSample(s.name).catch(err => {
-                    console.warn('Salamander sample failed:', s.name, err);
-                }))
-            );
+            const jobs = [];
+            for (const s of PIANO_SAMPLES) {
+                for (const layer of PIANO_VELOCITY_LAYERS) {
+                    const fn = _pianoSampleFileName(s.note, layer);
+                    jobs.push(loadPianoSample(fn).catch(err => {
+                        console.warn('Salamander sample failed:', fn, err);
+                    }));
+                }
+            }
+            _pianoPreloadPromise = Promise.all(jobs);
             return _pianoPreloadPromise;
         }
-        function findNearestPianoSample(freq) {
-            let best = PIANO_SAMPLES[0], bestDiff = Infinity;
+        // Map a 0..1 dynamic to one of the shipped velocity layers. Palta
+        // playback uses a fixed moderate value for its warm default; MIDI feeds
+        // real key velocity so soft keystrokes get the mellow layer and hard
+        // ones the open/powerful layer.
+        function pickPianoVelocityLayer(velocity) {
+            const v = velocity == null ? 0.55 : Math.max(0, Math.min(1, velocity));
+            if (v < 0.4) return PIANO_VELOCITY_LAYERS[0];        // soft
+            if (v < 0.75) return PIANO_VELOCITY_LAYERS[1];       // medium
+            return PIANO_VELOCITY_LAYERS[2];                     // loud
+        }
+        // Find the nearest sampled pitch (at a given velocity layer) that is
+        // actually loaded, so pitch-shifting stays minimal.
+        function findNearestPianoSample(freq, layer) {
+            let best = null, bestDiff = Infinity;
             for (const s of PIANO_SAMPLES) {
-                const buf = _pianoSampleCache.get(s.name);
+                const buf = _pianoSampleCache.get(_pianoSampleFileName(s.note, layer));
                 if (!buf) continue;
                 const d = Math.abs(Math.log2(freq / s.freq));
-                if (d < bestDiff) { bestDiff = d; best = s; }
+                if (d < bestDiff) { bestDiff = d; best = { note: s.note, freq: s.freq, layer, buf }; }
             }
             return best;
         }
@@ -3352,11 +3383,19 @@
         // `dest` is where this note's signal feeds into. Caller is responsible
         // for routing dest through the EQ+reverb bus (use getPianoBus to
         // obtain bus.input and connect dest → bus.input). voiceGain scales
-        // the sample amplitude (used by MIDI velocity).
-        function createSampledPianoNote(ctx, dest, freq, startTime, duration, leftCoupler, rightCoupler, voiceGain, softPedal) {
+        // the sample amplitude. `velocity` (0..1) selects which recorded
+        // velocity layer to play — the source-level dynamic that makes soft
+        // notes genuinely mellow (see pickPianoVelocityLayer). Palta playback
+        // passes a fixed moderate velocity; MIDI passes real key velocity.
+        function createSampledPianoNote(ctx, dest, freq, startTime, duration, leftCoupler, rightCoupler, voiceGain, softPedal, velocity) {
             voiceGain = voiceGain == null ? 1.0 : voiceGain;
             const busInput = dest;
             const sources = [];
+            // Soft pedal biases toward the mellow (soft) layer regardless of
+            // requested velocity; otherwise pick the layer from the dynamic.
+            const layer = softPedal
+                ? PIANO_VELOCITY_LAYERS[0]
+                : pickPianoVelocityLayer(velocity);
             // Soft pedal: slow the perceived attack with a short fade-in so
             // the hammer-strike transient is less prominent. (Skipping into
             // the sample changes pitch via playbackRate, so we ramp gain
@@ -3366,9 +3405,17 @@
             // a longer fade; the default uses a small one.
             const attackSec = softPedal ? 0.04 : 0.012;
             function scheduleOne(targetFreq, gainScale) {
-                const sample = findNearestPianoSample(targetFreq);
-                const buf = _pianoSampleCache.get(sample.name);
-                if (!buf) return;
+                // Prefer the chosen layer; fall back to any loaded layer so a
+                // partially-loaded set still sounds.
+                let sample = findNearestPianoSample(targetFreq, layer);
+                if (!sample) {
+                    for (const alt of PIANO_VELOCITY_LAYERS) {
+                        sample = findNearestPianoSample(targetFreq, alt);
+                        if (sample) break;
+                    }
+                }
+                if (!sample) return;
+                const buf = sample.buf;
                 const rate = targetFreq / sample.freq;
                 const src = ctx.createBufferSource();
                 src.buffer = buf;
@@ -5049,7 +5096,9 @@
                         // ~1.4× the onset interval gives a natural decay
                         // curve that ducks under the next note's attack.
                         const ringDur = Math.min(noteDuration, onsetInterval * 1.4);
-                        createSampledPianoNote(ctx, pbus.input, freq, evTime, ringDur, leftCoupler, false, 1.0, pianoSoftPedal);
+                        // Fixed moderate velocity → the warm, singing "medium"
+                        // layer, the sweet spot for expressive palta practice.
+                        createSampledPianoNote(ctx, pbus.input, freq, evTime, ringDur, leftCoupler, false, 1.0, pianoSoftPedal, 0.55);
                     } else {
                         createPianoNote(ctx, dest, freq, evTime, noteDuration, pianoType, leftCoupler, false);
                     }
@@ -6771,7 +6820,7 @@
                 if (params.instrument === 'piano' && params.pianoSamples && _pianoSampleCache.size > 0) {
                     const pbus = getPianoBus(midiAudioCtx, midiCompressor, params.pianoSoftPedal);
                     masterGain.connect(pbus.input);
-                    oscillators = createSampledPianoNote(midiAudioCtx, masterGain, freq, now, pianoDur, params.leftCoupler, params.rightCoupler, 1.0, params.pianoSoftPedal);
+                    oscillators = createSampledPianoNote(midiAudioCtx, masterGain, freq, now, pianoDur, params.leftCoupler, params.rightCoupler, 1.0, params.pianoSoftPedal, velScale);
                 } else {
                     masterGain.connect(midiCompressor);
                     oscillators = createPianoNote(midiAudioCtx, masterGain, freq, now, pianoDur, params.pianoType, params.leftCoupler, params.rightCoupler);
