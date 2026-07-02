@@ -69,8 +69,9 @@ Three categories of preset patterns:
 - Add or remove lines with +/- buttons on the last line after generation
 - Copy generated palta as plain text
 
-### Sound Engine (Web Audio API, no samples)
-- **Grand Piano** — Additive synthesis with 10 harmonics, inharmonicity modeling, hammer noise burst, soundboard resonance
+### Sound Engine (Web Audio API)
+- **Realistic Piano (default)** — Self-hosted, multi-velocity samples of a real acoustic grand (Salamander Grand V3, CC-BY 3.0), in `samples/piano/` as Ogg Vorbis. 30 pitches across the full keyboard (A0–C8, every minor third) × 3 dynamic layers (soft/medium/loud) so soft notes are genuinely mellow, not just quieter. Palta playback uses the warm medium layer; MIDI uses real key velocity. A "powerful yet soft, warm" voicing bus adds gentle EQ, soft tanh saturation, light bus compression, and a short warm reverb. Because these samples are loaded via `fetch()`, the app must be served over `http(s)://` — see [Running locally](#running-locally). Opening `index.html` directly as a `file://` URL falls back to the synthesized Grand Piano below.
+- **Grand Piano (synth fallback)** — Additive synthesis with 10 harmonics, inharmonicity modeling, hammer noise burst, soundboard resonance
 - **Upright Piano** — Shorter decay, mid-frequency EQ boost for "boxy" character
 - **Electric Piano** — FM synthesis (Rhodes-style) with tremolo LFO
 - **Harmonium** — Source-filter synthesis modeled after Puranik & Scavone's DAFx 2023 paper *"Physically Inspired Signal Model for Harmonium Sound Synthesis"*. The insight: a real harmonium's recognizable voice is the product of a rich reed signal passed through a complex wooden-cabinet formant filter. Changing brand = changing that filter.
@@ -130,12 +131,34 @@ Caveats:
 - Volume slider applies live to the tanpura `<audio>` element's `.volume` (no re-render).
 - There's a small startup delay (typically under 500 ms) while the offline render completes. In practice that's smaller than clicking Stop and Play took on the previous live-scheduling version.
 
+## Running locally
+
+The realistic piano loads sample files from `samples/piano/` via `fetch()`,
+which browsers block when the page is opened directly as a `file://` URL. Serve
+the folder over HTTP instead:
+
+```
+./serve.sh          # starts a local server on port 8000 and opens the browser
+./serve.sh 9000     # or pick a different port
+```
+
+Then open `http://localhost:8000/index.html`. (Under the hood this just runs
+`python3 -m http.server`.) Alternatively, use the hosted version — it works
+everywhere with samples and all:
+<https://muneerahmed94-alt.github.io/riyaz-palta-alankar/>.
+
+If you do open `index.html` as a `file://` URL, the app still works but falls
+back to the synthesized Grand Piano (the sampled piano will be silent because
+the samples can't be fetched).
+
 ## Project Structure
 
 ```
 riyaz-palta-alankar/
-  index.html    — Entire app (HTML + CSS + JS in a single file, no build step)
-  README.md     — This file
+  index.html        — Entire app (HTML + CSS + JS in a single file, no build step)
+  serve.sh          — Launch a local HTTP server and open the app
+  samples/piano/    — Multi-velocity acoustic-grand samples (Ogg Vorbis) + ATTRIBUTION.md
+  README.md         — This file
 ```
 
 ## Architecture

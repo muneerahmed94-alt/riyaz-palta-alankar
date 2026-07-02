@@ -5089,7 +5089,7 @@
                     if (instrument === 'harmonium') {
                         const reverb = getHarmoniumReverbBus(ctx, dest);
                         createHarmoniumNote(ctx, reverb.input, freq, evTime, noteDuration, reedType, leftCoupler, false, brand);
-                    } else if (pianoSamples) {
+                    } else if (pianoSamples && _pianoSampleCache.size > 0) {
                         const pbus = getPianoBus(ctx, dest, pianoSoftPedal);
                         // Allow a small overlap into the next onset so notes
                         // connect musically, but not so much that lines blur.
