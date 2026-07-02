@@ -183,18 +183,19 @@
         for Listen/Practice rendering.
         Voicing goal is "powerful yet soft and warm" — achieved with more
         than EQ. Per-context cached bus (default variant):
-          input gain 1.25×
-          → +2.0 dB low-shelf @ 220 Hz          (warmth/body)
+          input gain 1.35×
+          → +2.5 dB low-shelf @ 220 Hz          (warmth/body)
+          → +3.0 dB peak @ 150 Hz Q=0.8          (power/weight/authority)
           → -3.5 dB high-shelf @ 3.2 kHz         (mellow top, not muffled)
           → -3.0 dB peak @ 4.5 kHz Q=0.7         (tame "clink"/harshness)
           → +2.0 dB peak @ 300 Hz Q=0.9          (round low-mid body)
           → soft tanh saturation (WaveShaper, 4x oversample, drive 1.6)
                                                   (harmonic "tube" warmth +
                                                    perceived power, no treble)
-          → gentle bus compression (ratio 2.5:1, knee 30, thr -20 dB,
-             attack 12 ms, release 0.28 s)        (glue + lifted sustain; the
+          → bus compression (ratio 3.5:1, knee 30, thr -28 dB,
+             attack 12 ms, release 0.26 s)        (density + lifted sustain; the
                                                    biggest "powerful-yet-soft"
-                                                   lever) → +1.4× make-up gain
+                                                   lever) → +1.85× make-up gain
           → dry (0.85×) → dest
           → wet: HP 200 / LP 4.2 kHz / warm room-bloom convolution IR
              (getPianoHallIR, 1.6 s, T60 1.1 s) / 0.09× → dest
@@ -3166,20 +3167,25 @@
             return best;
         }
         // Per-context piano voicing bus (default voicing) — goal is "powerful
-        // yet soft and warm", built with more than EQ:
-        //   input gain 1.25×
-        //   → +2.0 dB low-shelf @ 220 Hz    (warmth/body)
+        // yet soft and warm", built with more than EQ. Power comes from
+        // low-mid body + density (compression/make-up), NOT brightness:
+        //   input gain 1.35×
+        //   → +2.5 dB low-shelf @ 220 Hz    (warmth/body)
+        //   → +3.0 dB peak @ 150 Hz Q=0.8   (power/weight/thump — authority)
         //   → -3.5 dB high-shelf @ 3.2 kHz  (mellow top, not muffled)
         //   → -3.0 dB peak @ 4.5 kHz Q=0.7  (tame "clink"/harshness)
         //   → +2.0 dB peak @ 300 Hz Q=0.9   (round low-mid body)
         //   → soft tanh saturation          (harmonic warmth + power, no treble)
-        //   → gentle bus compression (2.5:1) + make-up gain (glue + sustain)
+        //   → bus compression (3.5:1, thr -28 dB) + 1.85× make-up gain
+        //                                    (density + sustain + loudness = the
+        //                                     main "power" lever, still soft on top)
         //   → dry path (0.85×) → dest
         //   → wet path: HP 200 / LP 4.2 kHz / warm hall-bloom IR
         //     (getPianoHallIR, 1.6 s) / 0.09× → dest
-        // Soft-pedal voicing (when softPedal=true): lower input gain (1.15×),
-        // low-shelf +1.5 dB, high-shelf -9 dB @ 2 kHz, no high dip/punch,
-        // lighter saturation, gentler compression, lower reverb send (0.07×) —
+        // Soft-pedal voicing (when softPedal=true): lower input gain (1.2×),
+        // low-shelf +1.5 dB, no power/high-dip/punch peaks, high-shelf -9 dB @
+        // 2 kHz, lighter saturation, gentler compression (2.5:1) + smaller
+        // make-up (1.3×), lower reverb send (0.07×) —
         // darker, quieter, felt-piano feel. Plus a 40 ms gain fade-in per note
         // in createSampledPianoNote that softens the hammer attack (the
         // default uses a 12 ms fade-in).
@@ -3253,13 +3259,23 @@
             // upper harmonics with a gentle high-shelf and add a little low-mid
             // body, but nowhere near the old heavy -6 dB cut that made it sound
             // muffled/synthetic. The soft-pedal variant goes darker still.
-            input.gain.value = softPedal ? 1.15 : 1.25;
+            input.gain.value = softPedal ? 1.2 : 1.35;
 
             // Bass/low-mid weight for warmth and body.
             const lowShelf = ctx.createBiquadFilter();
             lowShelf.type = 'lowshelf';
             lowShelf.frequency.value = 220;
-            lowShelf.gain.value = softPedal ? 1.5 : 2.0;
+            lowShelf.gain.value = softPedal ? 1.5 : 2.5;
+
+            // "Power" peak in the fundamental/weight region (~150 Hz — where
+            // the mid-keyboard notes now live at Sa=C3). This is the chest/
+            // thump band that makes a grand feel powerful and authoritative
+            // without any added brightness. Default only; soft pedal stays flat.
+            const power = ctx.createBiquadFilter();
+            power.type = 'peaking';
+            power.frequency.value = 150;
+            power.Q.value = 0.8;
+            power.gain.value = softPedal ? 0.0 : 3.0;
 
             // Soften the top — gentle high-shelf roll-off rounds off hammer
             // harshness and glassy harmonics for a mellow tone. Soft pedal
@@ -3286,7 +3302,8 @@
             presence.gain.value = softPedal ? 1.5 : 2.0;
 
             input.connect(lowShelf);
-            lowShelf.connect(highShelf);
+            lowShelf.connect(power);
+            power.connect(highShelf);
             highShelf.connect(highDip);
             highDip.connect(presence);
 
@@ -3302,22 +3319,26 @@
             presence.connect(satPre);
             satPre.connect(shaper);
 
-            // Gentle bus compression — the biggest "powerful yet soft" lever.
-            // A low ratio with a soft knee gently lifts the body/sustain of
-            // each note and glues the line together, so runs feel full and
-            // effortless instead of spiky. Slow-ish attack keeps the natural
-            // hammer transient; medium release breathes with the phrase.
+            // Bus compression — the biggest "powerful yet soft" lever. A soft
+            // knee with a low-ish threshold lifts the body/sustain of each note
+            // and glues the line together, so runs feel full and effortless.
+            // Slow-ish attack keeps the natural hammer transient; medium
+            // release breathes with the phrase. The default drives this harder
+            // (lower threshold, higher ratio) than the soft-pedal variant: more
+            // gain reduction + more make-up = denser, more sustained, more
+            // POWERFUL, while staying soft on top (the EQ above keeps it warm).
             const comp = ctx.createDynamicsCompressor();
-            comp.threshold.value = softPedal ? -22 : -20;
+            comp.threshold.value = softPedal ? -22 : -28;
             comp.knee.value = 30;                                 // soft knee
-            comp.ratio.value = 2.5;                               // gentle
+            comp.ratio.value = softPedal ? 2.5 : 3.5;             // denser by default
             comp.attack.value = 0.012;                            // keep attack
-            comp.release.value = 0.28;
+            comp.release.value = 0.26;
             shaper.connect(comp);
 
-            // Make-up gain to restore level lost to compression.
+            // Make-up gain to restore (and slightly exceed) level lost to
+            // compression — this is where the extra loudness/authority lands.
             const makeup = ctx.createGain();
-            makeup.gain.value = softPedal ? 1.25 : 1.4;
+            makeup.gain.value = softPedal ? 1.3 : 1.85;
             comp.connect(makeup);
 
             const dryGain = ctx.createGain();
