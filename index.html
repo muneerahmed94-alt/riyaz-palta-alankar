@@ -27,8 +27,8 @@
     applied live without re-rendering.
   - Autoscroll checkboxes (beside every Loop checkbox, all synced) let the
     user freeze the page while the highlight still tracks the current note.
-  - Preset patterns: Common (12), Special (scale / sa-x / x-sa / sa-expand),
-    and custom "My patterns".
+  - Preset patterns: Common (12), Special (scale / sa-x / x-sa / sa-expand /
+    srg-weave), and custom "My patterns".
   - MIDI keyboard interface (Web MIDI API) to play along.
 
   ARCHITECTURE (single-file, no build step):
@@ -155,12 +155,16 @@
   for the next note. See trySplitContinuous() for the tokenizer logic.
 
   SPECIAL PATTERNS:
-  Three special pattern types that don't use standard transposition:
+  Special pattern types that don't use the standard input-driven flow:
     - "sa-x": Sa paired with each ascending swara (SR, SG, Sm, SP, SD, SN, SS')
     - "x-sa": Each swara paired back to Sa (RS, GS, mS, PS, DS, NS, S'S)
     - "sa-expand": Expanding pattern — each line adds one more swara:
         S → S P P S → S R m P P m R S → ... → S R G m P D N S' S' N D P m G R S
       This pattern has no avarohi (the Include Avarohi checkbox is hidden).
+    - "srg-weave": Fixed aaroh-only weave motif using Sa/Re/Ga
+        (S R G R S G S G R R G S G S R G R S), transposed up one swara per
+        line for 6 lines until the last line's Ga reaches higher Sa.
+      Aaroh only — no avarohi (the Include Avarohi checkbox is hidden).
   Aarohi walks up the scale, Avarohi mirrors back down from upper Sa.
   Default tempo for special patterns is 60 BPM (vs 102 BPM for regular paltas).
   See generateSpecialPalta() and doGenerateSpecial() in JS.
@@ -1847,6 +1851,7 @@
                     <button class="preset-btn special-preset-btn" data-special="sa-x">Sa Re, Sa Ga, Sa ma, Sa Pa, Sa Dha, Sa Ni, Sa Sa'</button>
                     <button class="preset-btn special-preset-btn" data-special="x-sa">Re Sa, Ga Sa, ma Sa, Pa Sa, Dha Sa, Ni Sa, Sa' Sa</button>
                     <button class="preset-btn special-preset-btn" data-special="sa-expand">Sa, Sa Pa, Sa ma Pa (expanding)</button>
+                    <button class="preset-btn special-preset-btn" data-special="srg-weave">Sa Re Ga Re Sa Ga Sa Ga Re Re Ga Sa Ga Sa Re Ga Re Sa</button>
                 </div>
             </div>
 
@@ -2401,6 +2406,20 @@
                     result.descending.push([sa+7, sa+6, sa+5, sa+4, sa+3, sa+2, sa+1, sa]);
                     result.landingBottom = sa;
                 }
+                return result;
+            }
+
+            if (type === 'srg-weave') {
+                // Aaroh-only weave pattern (no avarohi). The base motif
+                // S R G R S G S G R R G S G S R G R S is transposed up one
+                // swara per line until it reaches higher Sa.
+                const offsets = [0, 1, 2, 1, 0, 2, 0, 2, 1, 1, 2, 0, 2, 0, 1, 2, 1, 0];
+                // 6 lines: last line starts on Pa so its Ga reaches higher Sa.
+                for (let step = 0; step <= 5; step++) {
+                    const base = sa + step;
+                    result.ascending.push(offsets.map(o => base + o));
+                }
+                result.landingTop = sa + 7;
                 return result;
             }
 
@@ -5310,11 +5329,17 @@
             const errorContainer = document.getElementById('error-container');
             const outputCard = document.getElementById('output-card');
 
-            // All special patterns show the avarohi checkbox and default it to checked
+            // Most special patterns show the avarohi checkbox and default it to checked.
+            // "srg-weave" is a fixed aaroh-only line, so hide the checkbox.
             const avarohiOption = document.getElementById('avarohi-option');
             const avarohiCheckbox = document.getElementById('include-descending');
-            avarohiOption.style.display = '';
-            avarohiCheckbox.checked = true;
+            if (type === 'srg-weave') {
+                avarohiOption.style.display = 'none';
+                avarohiCheckbox.checked = false;
+            } else {
+                avarohiOption.style.display = '';
+                avarohiCheckbox.checked = true;
+            }
             const includeDesc = avarohiCheckbox.checked;
 
             errorContainer.innerHTML = '';
@@ -5328,6 +5353,7 @@
                 'x-sa': 'Re Sa, Ga Sa, ma Sa, Pa Sa, Dha Sa, Ni Sa, Sa\u2019 Sa',
                 'scale': 'Sa Re Ga ma Pa Dha Ni Sa\u2019 (scale)',
                 'sa-expand': 'Sa, Sa Pa, Sa ma Pa (expanding)',
+                'srg-weave': 'Sa Re Ga Re Sa Ga Sa Ga Re Re Ga Sa Ga Sa Re Ga Re Sa',
             };
             const label = labels[type];
             document.getElementById('sequence-input').value = label;
@@ -6005,6 +6031,8 @@
                     btn.textContent = [d[1], d[2], d[3], d[4], d[5], d[6]].map(s => s + ' ' + d[0]).join(', ') + ', ' + d[0] + '\u2019 ' + d[0];
                 } else if (type === 'sa-expand') {
                     btn.textContent = d[0] + ', ' + d[0] + ' ' + d[4] + ', ' + d[0] + ' ' + d[3] + ' ' + d[4] + ' (expanding)';
+                } else if (type === 'srg-weave') {
+                    btn.textContent = [d[0], d[1], d[2], d[1], d[0], d[2], d[0], d[2], d[1], d[1], d[2], d[0], d[2], d[0], d[1], d[2], d[1], d[0]].join(' ');
                 }
             });
             if (currentSpecialType && document.getElementById('output-card').classList.contains('visible')) {
@@ -6014,6 +6042,7 @@
                     'x-sa': [d[1], d[2], d[3], d[4], d[5], d[6]].map(s => s + ' ' + d[0]).join(', ') + ', ' + d[0] + '\u2019 ' + d[0],
                     'scale': d[0] + ' ' + d[1] + ' ' + d[2] + ' ' + d[3] + ' ' + d[4] + ' ' + d[5] + ' ' + d[6] + ' ' + d[0] + '\u2019 (scale)',
                     'sa-expand': d[0] + ', ' + d[0] + ' ' + d[4] + ', ' + d[0] + ' ' + d[3] + ' ' + d[4] + ' (expanding)',
+                    'srg-weave': [d[0], d[1], d[2], d[1], d[0], d[2], d[0], d[2], d[1], d[1], d[2], d[0], d[2], d[0], d[1], d[2], d[1], d[0]].join(' '),
                 };
                 if (labels[currentSpecialType]) {
                     el.textContent = '';
