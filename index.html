@@ -161,10 +161,10 @@
     - "sa-expand": Expanding pattern — each line adds one more swara:
         S → S P P S → S R m P P m R S → ... → S R G m P D N S' S' N D P m G R S
       This pattern has no avarohi (the Include Avarohi checkbox is hidden).
-    - "srg-weave": Fixed aaroh-only weave motif using Sa/Re/Ga
+    - "srg-weave": Weave motif using Sa/Re/Ga
         (S R G R S G S G R R G S G S R G R S), transposed up one swara per
-        line for 6 lines until the last line's Ga reaches higher Sa.
-      Aaroh only — no avarohi (the Include Avarohi checkbox is hidden).
+        line for 8 aarohi lines. Supports avarohi (the Include Avarohi
+        checkbox mirrors the weave back down, one swara per line from upper Sa).
   Aarohi walks up the scale, Avarohi mirrors back down from upper Sa.
   Default tempo for special patterns is 60 BPM (vs 102 BPM for regular paltas).
   See generateSpecialPalta() and doGenerateSpecial() in JS.
@@ -2410,16 +2410,25 @@
             }
 
             if (type === 'srg-weave') {
-                // Aaroh-only weave pattern (no avarohi). The base motif
+                // Weave pattern. The base motif
                 // S R G R S G S G R R G S G S R G R S is transposed up one
-                // swara per line until it reaches higher Sa.
+                // swara per line. 8 aarohi lines walk it up past higher Sa.
                 const offsets = [0, 1, 2, 1, 0, 2, 0, 2, 1, 1, 2, 0, 2, 0, 1, 2, 1, 0];
-                // 6 lines: last line starts on Pa so its Ga reaches higher Sa.
-                for (let step = 0; step <= 5; step++) {
+                for (let step = 0; step <= 7; step++) {
                     const base = sa + step;
                     result.ascending.push(offsets.map(o => base + o));
                 }
                 result.landingTop = sa + 7;
+                if (includeDescending) {
+                    // Avarohi mirror: negate the offsets and transpose down
+                    // one swara per line, starting from higher Sa.
+                    const descOffsets = offsets.map(o => -o);
+                    for (let step = 0; step <= 7; step++) {
+                        const base = sa + 7 - step;
+                        result.descending.push(descOffsets.map(o => base + o));
+                    }
+                    result.landingBottom = sa;
+                }
                 return result;
             }
 
@@ -5329,17 +5338,11 @@
             const errorContainer = document.getElementById('error-container');
             const outputCard = document.getElementById('output-card');
 
-            // Most special patterns show the avarohi checkbox and default it to checked.
-            // "srg-weave" is a fixed aaroh-only line, so hide the checkbox.
+            // All special patterns show the avarohi checkbox and default it to checked.
             const avarohiOption = document.getElementById('avarohi-option');
             const avarohiCheckbox = document.getElementById('include-descending');
-            if (type === 'srg-weave') {
-                avarohiOption.style.display = 'none';
-                avarohiCheckbox.checked = false;
-            } else {
-                avarohiOption.style.display = '';
-                avarohiCheckbox.checked = true;
-            }
+            avarohiOption.style.display = '';
+            avarohiCheckbox.checked = true;
             const includeDesc = avarohiCheckbox.checked;
 
             errorContainer.innerHTML = '';
