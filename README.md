@@ -39,7 +39,7 @@ The app follows the standard Indian classical notation convention:
 - All preset button labels (common, special, my patterns) dynamically update when swara variants are toggled on the piano selector
 
 ### Pattern Presets
-Three categories of preset patterns:
+Three categories of preset patterns, plus fixed raag phrases:
 
 **Common patterns** — 12 palta starting sequences, organized by complexity:
 - Repetitions: Sa Sa, Sa Sa Sa, Sa Sa Sa Sa
@@ -55,6 +55,12 @@ Three categories of preset patterns:
 
 **My patterns** — Custom saved patterns:
 - Sa Ga Sa Re (6 lines), Sa Re Ga ma Sa Ga Re ma, Sa Re Re Sa Re Ga Re Sa (7 lines), Sa .Ni Re .Ni Re Ga ma Ga (7 lines), Sa Pa ma Ga Re Sa Re Ga (6 lines)
+
+**Phrases** — Fixed phrases grouped by raag. Unlike paltas they are not transposed into further lines: each phrase renders as a single line exactly as written, with no avarohi section and no +/- line buttons.
+- **Kafi**: `SR gm PD nS' nD Pm gR S`, `Rg mP Dn S'n DP mP mg RS`, `Dn S'R' S'n DP mg RS Rg mP`, `mg RS Rg mP DP mP mg RS`, `Sg Rg Rm gm gP mP mg RS`
+- Choosing a phrase sets the Swara Selector to the raag's swaras (Kafi: komal Ga, komal Ni) so it plays and displays correctly. The selection stays in effect afterwards — toggle it back on the piano for other paltas.
+- Default tempo is set per raag (Kafi: 110 BPM).
+- Because a phrase is one line, its reps are the repeats you practise — the beat count-in plays before **every** rep (Listen and Practice), not just once at the start. Tick **Skip** to drop it.
 
 ### Palta Generation
 - Enter swaras in any format: full names (`Sa Re Ga Ma`), short (`S R G M`), or continuous (`SRGM`)
@@ -90,10 +96,10 @@ Three categories of preset patterns:
 - Sound options are located in the Output Card (after "Generated Palta" header)
 
 ### Playback
-- Adjustable tempo (60–480 BPM, default 102 for regular, 60 for special patterns)
+- Adjustable tempo (60–480 BPM, default 102 for regular, 60 for special patterns, per-raag for phrases)
 - Beat counter (2, 3, 4, 6, 8) with optional skip
 - Play aarohi only, avarohi only, or both
-- Repeat mode for continuous practice
+- Repeat mode for continuous practice — the beat is kept exactly across the loop boundary (see the loop-file tiling note under Playback Engine)
 - Visual note highlighting during playback
 - Left coupler (adds lower octave) for both Piano and Harmonium
 - Selectable root key (Sa = C through B)
@@ -198,7 +204,9 @@ Two generators:
 
 **Special** (`generateSpecialPalta()`) — For SR/SG/.../SS' and RS/GS/.../S'S patterns. Each line pairs a fixed base note (Sa) with a different scale degree, walking up for aarohi and back down for avarohi.
 
-Both generators produce the same `{ ascending, descending, landingTop, landingBottom }` structure, so rendering, playback, and copy work identically.
+**Phrase** (`generatePhrasePalta()`) — For fixed raag phrases from `RAAG_PHRASES`. Parses the phrase text as-is into a single aarohi line; no transposition, no avarohi.
+
+All generators produce the same `{ ascending, descending, landingTop, landingBottom }` structure, so rendering, playback, and copy work identically.
 
 #### 3. Renderer
 Builds DOM elements for each palta line. Each swara `<span>` gets `data-section`, `data-line`, `data-swar` attributes used by the playback engine for visual highlighting.
@@ -231,12 +239,17 @@ Palta playback uses the offline-render + `<audio>`-element pattern so it keeps p
 - `renderPaltaWav(sampleRate, timeline, ip, renderSec)` — runs `renderToBuffer()` with `renderPaltaTimelineOnContext()` as the render function, then encodes via `audioBufferToWavBlob()`.
 - `renderPaltaTimelineOnContext(ctx, dest, timeline, ip)` — schedules all notes of one timeline onto a context (live or offline). Shared between offline render (used now) and the code path that would live-schedule if we ever needed to fall back.
 - Repeat mode sets `audio.loop = true`; otherwise we listen for the `ended` event and call `finishPlayback()`.
-- Visual highlights are driven by `requestAnimationFrame` via `startHighlightLoop()` with two strategies: **repeat mode** uses `audio.currentTime % iterationSec` (self-correcting — no drift accumulates across iterations); **single-shot** uses a wall-clock timer anchored to the `'playing'` event (avoids iOS Safari reporting `currentTime` ahead of actual speaker output on large single-shot WAVs). `iterationSec` is computed from the exact WAV sample count (`shaped.length / sampleRate`) so the modulo boundary aligns perfectly with the loop point.
+- **Loop-file tiling** — `HTMLAudioElement.loop` has a small gap at every file wrap, which breaks the beat between the last and first note. That was very audible for short loops (a single raag phrase is ~15–20 s). `buildSeamlessLoopBuffer()` therefore tiles the folded iteration until the file is at least `MIN_LOOP_FILE_SEC` (60 s), so the wrap happens at most once a minute; inside the file, iterations are sample-exact. It returns `iterationLength` (samples per iteration) alongside the tiled `length`.
+- Turning Repeat off mid-play schedules `finishPlayback()` at the end of the current iteration (`playbackState.loopOffTimer`) rather than waiting for the tiled file's `ended` event. Turning Repeat back on, or a skip-toggle re-render, cancels it.
+- **Count-in per rep for phrases** — `countInEveryRep()` (true when a phrase is shown) makes `buildAscTimeline()`, `buildPracticeAscTimeline()` and the block layout in `renderPaltaPerBlock()` put the count-in before every rep instead of once at the start. The timeline (highlight) and block layout (audio) must stay slot-for-slot identical.
+- Visual highlights are driven by `requestAnimationFrame` via `startHighlightLoop()` with two strategies: **repeat mode** uses `audio.currentTime % iterationSec` (self-correcting — no drift accumulates across iterations); **single-shot** uses a wall-clock timer anchored to the `'playing'` event (avoids iOS Safari reporting `currentTime` ahead of actual speaker output on large single-shot WAVs). `iterationSec` is computed from the exact WAV sample count (`(shaped.iterationLength || shaped.length) / sampleRate`) so the modulo boundary aligns perfectly with each iteration in the tiled loop file.
 
 **Key functions:**
 - `doGenerate()` — Reads the **Select nearest note** checkbox, parses input (passing the flag to `parseSequence`), generates palta, renders, sets tempo to 102 BPM. Auto-corrects input text to reflect swara variants.
 - `doGenerateSpecial(type)` — Generates special patterns (sa-x or x-sa), sets tempo to 60 BPM.
-- `reRenderPalta()` — Re-generates and re-renders the current palta (handles both standard and special via `currentSpecialType` flag). Called when swara variants, include avarohi, or line counts change.
+- `doGeneratePhrase(group, text)` — Shows a fixed raag phrase: sets `currentPhrase`, applies the raag's swaras via `applyRaagSwaras()`, sets the raag's default tempo, hides the avarohi option, and renders a single line.
+- `applyRaagSwaras(semitones)` — Sets `SWARA_SEMITONES` and display names to a raag's swara set and refreshes the Swara Selector piano and preset labels.
+- `reRenderPalta()` — Re-generates and re-renders the current palta (handles standard, special via `currentSpecialType`, and phrases via `currentPhrase`). Called when swara variants, include avarohi, beat count, or line counts change.
 - `updateSwaraDisplayName()` — Updates display name arrays when a variant is toggled. Handles the special Ma convention (Shuddh=lowercase, Teevra=uppercase).
 - `updatePresetLabels()` — Re-renders all preset button labels (common, special, my patterns) and the pattern-info text using the current display name arrays. Called when swara variants change.
 - `setTempo(bpm)` — Sets both the slider and input to the given BPM value.
@@ -277,6 +290,7 @@ Uses `navigator.requestMIDIAccess()` to connect to external keyboards. Each note
 #### Event Listeners
 - **Preset buttons** (common patterns) — Set input text, hide the nearest-note checkbox, and call `doGenerate()`.
 - **Special preset buttons** — Hide the nearest-note checkbox and call `doGenerateSpecial()` with the pattern type.
+- **Phrase buttons** — Built at startup from `RAAG_PHRASES` into `#phrase-groups` (one labelled group per raag, class `phrase-preset-btn`). Each calls `doGeneratePhrase()`.
 - **Sequence input (`input` event)** — Show the nearest-note checkbox, update the suggested line count via `updateSuggestedLines()`.
 - **Nearest-note checkbox (`change`)** — Re-runs `updateSuggestedLines()` so line count reflects the new parse mode.
 - **Lines stepper (−/+)** — Decrement/increment the lines input within [1, 20].
@@ -356,6 +370,18 @@ For guruji-prescribed patterns where the traditional practice count differs from
 3. The click handler is already wired via `querySelectorAll('.special-preset-btn')`.
 4. Add a label entry in the `labels` object inside `doGenerateSpecial()`.
 5. If the pattern has no avarohi, add a check in `doGenerateSpecial()` to hide `#avarohi-option` (see `sa-expand` for reference).
+
+### Adding raag phrases
+Add an entry (or extend an existing one) in `RAAG_PHRASES`:
+```js
+{
+    raag: 'Bhimpalasi',
+    semitones: [0, 2, 3, 5, 7, 9, 10], // swara set, same layout as SWARA_SEMITONES
+    tempo: 110,                        // default BPM when a phrase is chosen
+    phrases: ["nS gm P", "..."],       // short notation: lowercase = komal, m = shuddh Ma, M = teevra Ma, ' = upper octave, . = lower octave
+}
+```
+Buttons and the raag group label are generated automatically. Phrases are parsed without nearest-octave, so mark upper/lower octave notes explicitly.
 
 ### Adding a completely new instrument
 1. Create a synth function: `createMyInstrumentNote(audioCtx, dest, freq, startTime, duration, ...params)` that returns an array of started oscillators/nodes.

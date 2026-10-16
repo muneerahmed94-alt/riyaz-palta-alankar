@@ -29,6 +29,8 @@
     user freeze the page while the highlight still tracks the current note.
   - Preset patterns: Common (12), Special (scale / sa-x / x-sa / sa-expand /
     srg-weave), and custom "My patterns".
+  - Phrases: fixed (non-transposed) phrases grouped by raag (RAAG_PHRASES);
+    choosing one sets the Swara Selector to the raag's swaras.
   - MIDI keyboard interface (Web MIDI API) to play along.
 
   ARCHITECTURE (single-file, no build step):
@@ -55,8 +57,10 @@
     4. Common patterns       — 12 palta presets (repetitions, ascending, direction changes)
     5. Special patterns      — scale, SR/SG pairs, RS/GS pairs, expanding
     6. My patterns           — user's custom saved patterns
-    7. Custom text input     — enter first line of the palta to generate all lines
-    8. Generate button
+    7. Phrases               — fixed raag phrases, one labelled group per raag
+                                (built from RAAG_PHRASES; currently Kafi)
+    8. Custom text input     — enter first line of the palta to generate all lines
+    9. Generate button
 
   UI LAYOUT (Output Card):
     1. Generated Palta title + Copy as Text
@@ -169,6 +173,15 @@
   Default tempo for special patterns is 60 BPM (vs 102 BPM for regular paltas).
   See generateSpecialPalta() and doGenerateSpecial() in JS.
 
+  RAAG PHRASES:
+  Fixed phrases grouped by raag (RAAG_PHRASES). Each phrase renders as ONE
+  line exactly as written — no transposition, no avarohi, no +/- buttons.
+  Choosing one applies the raag's swara set to the Swara Selector
+  (applyRaagSwaras; Kafi = komal Ga + komal Ni) and the raag's default tempo
+  (Kafi: 110 BPM). Since the phrase is a single line, its reps are the
+  repeats — the beat count-in plays before every rep (countInEveryRep()).
+  See generatePhrasePalta() and doGeneratePhrase() in JS.
+
   SOUND SYNTHESIS:
   - Piano: Two modes selectable by a "Realistic" checkbox (default on),
     plus an optional "Soft pedal" toggle on the realistic path:
@@ -237,6 +250,9 @@
       2. AudioBuffer is encoded as a 16-bit PCM WAV Blob.
       3. <audio>.src = blob URL, loop=true (or false for single-shot),
          play().
+    Palta loop files are tiled to >= 60 s (buildSeamlessLoopBuffer) because
+    HTMLAudioElement.loop has a small gap at each file wrap that would break
+    the beat between the last and first note of short loops.
     Playing through HTMLMediaElement lets the platform's native audio
     pipeline drive output, which continues at full speed when the tab
     is backgrounded, the phone locks, or the browser throttles JS
@@ -404,6 +420,17 @@
             display: flex;
             flex-wrap: wrap;
             gap: 0.4rem;
+        }
+
+        .phrase-raag + .phrase-raag {
+            margin-top: 0.6rem;
+        }
+
+        .phrase-raag-label {
+            font-size: 0.8rem;
+            font-style: italic;
+            color: #7a4a2a;
+            margin-bottom: 0.35rem;
         }
 
         .preset-btn {
@@ -1866,6 +1893,12 @@
                 </div>
             </div>
 
+            <!-- Fixed raag phrases — buttons built from RAAG_PHRASES in JS -->
+            <div class="presets">
+                <div class="presets-label">Phrases:</div>
+                <div id="phrase-groups"></div>
+            </div>
+
             <!-- Swara text input — custom palta from user input -->
             <div class="input-group">
                 <label for="sequence-input">Generate your own palta/alankar which starts with</label>
@@ -2490,6 +2523,35 @@
             return result;
         }
 
+        // ── Raag phrases ─────────────────────────────────────
+        // Fixed phrases grouped by raag. Unlike paltas they are NOT transposed
+        // into further lines — each phrase renders as a single line as written.
+        // semitones: the raag's swara set (same layout as SWARA_SEMITONES);
+        // applied to the Swara Selector when a phrase is chosen so the
+        // komal/teevra swaras play and display correctly.
+        // tempo: default BPM set when one of the raag's phrases is chosen.
+        // Phrase text uses the short notation (lowercase g/n = komal, m = shuddh
+        // Ma); spaces only group swaras for readability.
+        const RAAG_PHRASES = [
+            {
+                raag: 'Kafi',
+                semitones: [0, 2, 3, 5, 7, 9, 10], // komal Ga, komal Ni
+                tempo: 110,
+                phrases: [
+                    "SR gm PD nS' nD Pm gR S",
+                    "Rg mP Dn S'n DP mP mg RS",
+                    "Dn S'R' S'n DP mg RS Rg mP",
+                    "mg RS Rg mP DP mP mg RS",
+                    "Sg Rg Rm gm gP mP mg RS",
+                ],
+            },
+        ];
+
+        function generatePhrasePalta(phrase) {
+            const parsed = parseSequence(phrase.text, false);
+            return { ascending: [parsed.notes], descending: [], landingTop: null, landingBottom: null };
+        }
+
         // ══════════════════════════════════════════════════════
         // ── 3. RENDERER ─────────────────────────────────────
         // Builds the DOM for the generated palta. Each swara span gets
@@ -2525,7 +2587,7 @@
                 });
                 line.appendChild(group);
 
-                if (isLast) {
+                if (isLast && !currentPhrase) {
                     const actions = document.createElement('span');
                     actions.className = 'line-actions';
 
@@ -2664,7 +2726,9 @@
             }
 
             // Ascending header with play/repeat
-            const ascTitle = (currentSpecialType === 'sa-expand' && includeDescending)
+            const ascTitle = currentPhrase
+                ? 'Raag ' + currentPhrase.raag + ' — Phrase'
+                : (currentSpecialType === 'sa-expand' && includeDescending)
                 ? 'Aarohi & Avarohi (Ascending & Descending)'
                 : 'Aarohi (Ascending)';
             container.appendChild(createDirectionHeader(ascTitle, 'play-asc', 'repeat-asc'));
@@ -4387,16 +4451,26 @@
         //   and assembles via overlap-add, matching the Listen optimization.
         // ══════════════════════════════════════════════════════
 
+        // A raag phrase is a single line, so its reps are the "repeats" the
+        // student hears — give each rep its own count-in. Paltas keep one
+        // count-in at the start of the aarohi.
+        function countInEveryRep() {
+            return !!currentPhrase;
+        }
+
         function buildAscTimeline(palta, beatCount, skipIntroBeats, reps) {
             reps = reps || 1;
             const timeline = [];
-            if (!skipIntroBeats) {
+            const pushCountIn = () => {
+                if (skipIntroBeats) return;
                 for (let i = 0; i < beatCount; i++) {
                     timeline.push({ type: 'beat', section: 'beat-intro', swarIdx: i });
                 }
-            }
+            };
+            if (!countInEveryRep()) pushCountIn();
             palta.ascending.forEach((line, li) => {
                 for (let r = 0; r < reps; r++) {
+                    if (countInEveryRep()) pushCountIn();
                     line.forEach((noteNum, si) => {
                         timeline.push({ type: 'note', noteNum, section: 'asc', lineIdx: li, swarIdx: si });
                     });
@@ -4494,6 +4568,7 @@
         let descLineCount = 7;          // Number of descending lines
         let currentSpecialType = null;  // null = normal palta, 'sa-x' or 'x-sa' = special
         let currentIsPreset = false;    // true when generated from a preset button
+        let currentPhrase = null;       // { raag, text } when a raag phrase is shown
         let playbackState = null;       // { audioCtx, timers, allOscillators } — null when stopped
         let activePlayBtn = null;       // DOM button currently showing "Stop"
 
@@ -4698,7 +4773,7 @@
                 // Compute the exact loop duration from the actual sample
                 // count so the highlight modulo never drifts — iterationSec
                 // is a float that may not land on a sample boundary.
-                const exactIterationSec = shaped.length / sampleRate;
+                const exactIterationSec = (shaped.iterationLength || shaped.length) / sampleRate;
 
                 // liveParams is the shared mutable context for this playback
                 // session. The highlight RAF loop reads isLooping/iterationSec/tl
@@ -4763,13 +4838,16 @@
         // line and repeats after it `reps` times before moving to the next line.
         function buildPracticeAscTimeline(palta, beatCount, skipIntroBeats, reps) {
             const timeline = [];
-            if (!skipIntroBeats) {
+            const pushCountIn = () => {
+                if (skipIntroBeats) return;
                 for (let i = 0; i < beatCount; i++) {
                     timeline.push({ type: 'beat', section: 'beat-intro', swarIdx: i, practicePhase: 'audio' });
                 }
-            }
+            };
+            if (!countInEveryRep()) pushCountIn();
             palta.ascending.forEach((line, li) => {
                 for (let r = 0; r < reps; r++) {
+                    if (countInEveryRep()) pushCountIn();
                     line.forEach((noteNum, si) => {
                         timeline.push({ type: 'note', noteNum, section: 'asc', lineIdx: li, swarIdx: si, practicePhase: 'audio' });
                     });
@@ -4901,7 +4979,7 @@
                     }
                 }
 
-                const exactIterationSec = shaped.length / sampleRate;
+                const exactIterationSec = (shaped.iterationLength || shaped.length) / sampleRate;
 
                 const liveParams = {
                     mode,
@@ -5005,11 +5083,20 @@
             const includeAsc = (mode === 'all' || mode === 'asc');
             const includeDesc = (mode === 'all' || mode === 'desc') && palta.descending && palta.descending.length > 0;
 
+            function pushCountIn() {
+                if (p.skipIntroBeats || p.beatCount <= 0) return;
+                const events = [];
+                for (let i = 0; i < p.beatCount; i++) events.push({ type: 'beat' });
+                blocks.push({ key: 'beat-intro', events, slotCount: p.beatCount, destSlot, kind: 'audio' });
+                destSlot += p.beatCount;
+            }
+
             function pushLine(line, sectionKey) {
                 const audioEvents = line.map((noteNum) => ({ type: 'note', noteNum }));
                 const audioKey = sectionKey + ':' + line.join(',');
                 const silentKey = 'silent:' + line.length;
                 for (let r = 0; r < reps; r++) {
+                    if (sectionKey === 'asc' && countInEveryRep()) pushCountIn();
                     blocks.push({ key: audioKey, events: audioEvents, slotCount: line.length, destSlot, kind: 'audio' });
                     destSlot += line.length;
                     if (isPractice) {
@@ -5020,12 +5107,7 @@
             }
 
             if (includeAsc) {
-                if (!p.skipIntroBeats && p.beatCount > 0) {
-                    const events = [];
-                    for (let i = 0; i < p.beatCount; i++) events.push({ type: 'beat' });
-                    blocks.push({ key: 'beat-intro', events, slotCount: p.beatCount, destSlot, kind: 'audio' });
-                    destSlot += p.beatCount;
-                }
+                if (!countInEveryRep()) pushCountIn();
                 palta.ascending.forEach((line) => pushLine(line, 'asc'));
             }
 
@@ -5251,6 +5333,7 @@
         function doGenerate(isPreset, forcedLines) {
             stopPlayback();
             currentSpecialType = null;
+            currentPhrase = null;
             currentIsPreset = !!isPreset;
             setTempo(102);
             document.getElementById('avarohi-option').style.display = '';
@@ -5332,6 +5415,7 @@
         function doGenerateSpecial(type) {
             stopPlayback();
             currentSpecialType = type;
+            currentPhrase = null;
             setTempo(type === 'scale' ? 102 : 60);
 
             const beatCount = parseInt(document.getElementById('beat-select').value);
@@ -5374,12 +5458,57 @@
             outputCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
+        // ── Set the Swara Selector to a raag's swaras ───────
+        function applyRaagSwaras(semitones) {
+            for (let i = 0; i < 7; i++) {
+                const v = SWARA_VARIANTS[i];
+                if (!v) continue;
+                SWARA_SEMITONES[i] = semitones[i];
+                updateSwaraDisplayName(i, semitones[i] === v.variant);
+            }
+            updatePianoSwaraLabels();
+            updatePresetLabels();
+        }
+
+        // ── Show a fixed raag phrase (single line, no avarohi) ──
+        function doGeneratePhrase(group, text) {
+            stopPlayback();
+            currentSpecialType = null;
+            currentPhrase = { raag: group.raag, text };
+            setTempo(group.tempo);
+            applyRaagSwaras(group.semitones);
+
+            const beatCount = parseInt(document.getElementById('beat-select').value);
+            const outputCard = document.getElementById('output-card');
+            document.getElementById('error-container').innerHTML = '';
+            document.getElementById('avarohi-option').style.display = 'none';
+
+            const palta = generatePhrasePalta(currentPhrase);
+            currentPaltaData = palta;
+            currentParsedNotes = palta.ascending[0];
+            currentUseShort = true;
+
+            const display = currentParsedNotes.map(n => numToSwara(n, true).text).join(' ');
+            document.getElementById('sequence-input').value = display;
+            const info = document.getElementById('pattern-info');
+            info.textContent = '';
+            const strong = document.createElement('strong');
+            strong.textContent = 'Raag ' + group.raag + ' phrase: ';
+            info.appendChild(strong);
+            info.appendChild(document.createTextNode(text.replace(/'/g, '’')));
+
+            renderPalta(palta, true, false, beatCount);
+            outputCard.classList.add('visible');
+            outputCard.dataset.plainText = paltaToText(palta, true, false, beatCount);
+            outputCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
         // ── Re-render after add/delete ──────────────────────
         function reRenderPalta() {
             if (!currentParsedNotes) return;
             stopPlayback();
 
-            const includeDesc = document.getElementById('include-descending').checked;
+            const includeDesc = !currentPhrase && document.getElementById('include-descending').checked;
             const beatCount = parseInt(document.getElementById('beat-select').value);
 
             // Preserve skip checkbox states before re-render destroys them
@@ -5388,7 +5517,9 @@
             const savedSkipIntro = skipIntroCb ? skipIntroCb.checked : false;
             const savedSkipTrans = skipTransCb ? skipTransCb.checked : false;
 
-            const palta = currentSpecialType
+            const palta = currentPhrase
+                ? generatePhrasePalta(currentPhrase)
+                : currentSpecialType
                 ? generateSpecialPalta(currentSpecialType, includeDesc)
                 : generatePalta(currentParsedNotes, includeDesc, ascLineCount, descLineCount);
             currentPaltaData = palta;
@@ -5829,6 +5960,15 @@
         // decay tail (plus older iterations' decays via the modulo wrap)
         // is already mixed into the start of the loop, so the wraparound
         // is seamless AND the steady-state overlap sounds natural.
+        //
+        // The folded iteration is then tiled until the file is at least
+        // MIN_LOOP_FILE_SEC long. HTMLAudioElement.loop has a small gap at
+        // every file wrap, which breaks the beat between the last and first
+        // note — very audible for short loops (e.g. a single raag phrase).
+        // Tiling makes that wrap happen at most once a minute. The returned
+        // buffer carries iterationLength (samples per single iteration) so
+        // callers can keep the highlight modulo on one iteration.
+        const MIN_LOOP_FILE_SEC = 60;
         function buildSeamlessLoopBuffer(buffer, loopSec) {
             const sr = buffer.sampleRate;
             const loopLen = Math.min(buffer.length, Math.round(loopSec * sr));
@@ -5865,11 +6005,19 @@
                     for (let i = 0; i < buf.length; i++) buf[i] *= scale;
                 }
             }
+            const tiles = Math.max(1, Math.ceil(MIN_LOOP_FILE_SEC * sr / loopLen));
+            const tiled = channels.map(buf => {
+                if (tiles === 1) return buf;
+                const out = new Float32Array(loopLen * tiles);
+                for (let t = 0; t < tiles; t++) out.set(buf, t * loopLen);
+                return out;
+            });
             return {
                 numberOfChannels: buffer.numberOfChannels,
                 sampleRate: sr,
-                length: loopLen,
-                getChannelData: (i) => channels[i],
+                length: loopLen * tiles,
+                iterationLength: loopLen,
+                getChannelData: (i) => tiled[i],
             };
         }
 
@@ -6243,6 +6391,32 @@
             });
         });
 
+        // Raag phrase buttons — one labelled group per raag in RAAG_PHRASES.
+        // Labels are static (the phrase notation already marks komal swaras).
+        const phraseGroupsEl = document.getElementById('phrase-groups');
+        RAAG_PHRASES.forEach(group => {
+            const groupEl = document.createElement('div');
+            groupEl.className = 'phrase-raag';
+            const label = document.createElement('div');
+            label.className = 'phrase-raag-label';
+            label.textContent = group.raag;
+            groupEl.appendChild(label);
+            const chips = document.createElement('div');
+            chips.className = 'preset-chips';
+            group.phrases.forEach(text => {
+                const btn = document.createElement('button');
+                btn.className = 'preset-btn phrase-preset-btn';
+                btn.textContent = text.replace(/'/g, '’');
+                btn.addEventListener('click', () => {
+                    document.getElementById('nearest-label').style.display = 'none';
+                    doGeneratePhrase(group, text);
+                });
+                chips.appendChild(btn);
+            });
+            groupEl.appendChild(chips);
+            phraseGroupsEl.appendChild(groupEl);
+        });
+
         // Special preset buttons (SR SG... / RS GS...)
         document.querySelectorAll('.special-preset-btn').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -6365,7 +6539,17 @@
                 const elapsed = entry.el.currentTime;
                 lp.isLooping = false;
                 restartHighlightFromOffset(entry.el, lp, elapsed);
+
+                // The loop file holds several tiled iterations, so 'ended'
+                // could be far away — stop at the end of the current one.
+                const remainingSec = lp.iterationSec - (elapsed % lp.iterationSec);
+                playbackState.loopOffTimer = setTimeout(finishPlayback, remainingSec * 1000);
+                playbackState.timers.push(playbackState.loopOffTimer);
             } else {
+                if (playbackState.loopOffTimer) {
+                    clearTimeout(playbackState.loopOffTimer);
+                    playbackState.loopOffTimer = null;
+                }
                 // Switch to looping: re-render a seamless buffer in the background.
                 // Current (non-looping) audio keeps playing until the new blob is ready.
                 const token = playbackState.pendingRenderToken;
@@ -6375,7 +6559,7 @@
                     if (!playbackState || playbackState.pendingRenderToken !== token) return;
                     const shaped = buildSeamlessLoopBuffer(buffer, p.iterationSec);
                     const blob = audioBufferToWavBlob(shaped);
-                    const exactIterationSec = shaped.length / p.sampleRate;
+                    const exactIterationSec = (shaped.iterationLength || shaped.length) / p.sampleRate;
                     entry.el.loop = true;
                     lp.isLooping = true;
                     lp.iterationSec = exactIterationSec;
@@ -6443,7 +6627,7 @@
                     ? buildSeamlessLoopBuffer(buffer, newIterationSec)
                     : trimBuffer(buffer, newIterationSec + p.tailSec);
                 const blob = audioBufferToWavBlob(shaped);
-                const exactIterationSec = shaped.length / p.sampleRate;
+                const exactIterationSec = (shaped.iterationLength || shaped.length) / p.sampleRate;
                 const entry = _mediaPlayers.get('palta');
                 if (!entry) return;
                 entry.el.loop = repeatOn;
@@ -6452,6 +6636,10 @@
                 lp.isLooping = repeatOn;
                 lp.renderParams.iterationSec = newIterationSec;
                 lp.renderParams.renderSec = newRenderSec;
+                if (playbackState.loopOffTimer) {
+                    clearTimeout(playbackState.loopOffTimer);
+                    playbackState.loopOffTimer = null;
+                }
                 if (playbackState.endedCleanup) {
                     entry.el.removeEventListener('ended', playbackState.endedCleanup);
                     playbackState.endedCleanup = null;
@@ -6609,7 +6797,9 @@
         // Re-render when beat count changes (updates the beat line display)
         document.getElementById('beat-select').addEventListener('change', () => {
             const input = document.getElementById('sequence-input').value;
-            if (input.trim() && document.getElementById('output-card').classList.contains('visible')) {
+            if (currentPhrase) {
+                reRenderPalta();
+            } else if (input.trim() && document.getElementById('output-card').classList.contains('visible')) {
                 doGenerate();
             }
         });
@@ -6761,7 +6951,7 @@
 
             if (currentParsedNotes) {
                 reRenderPalta();
-                if (!currentSpecialType) {
+                if (!currentSpecialType && !currentPhrase) {
                     document.getElementById('pattern-info').textContent = '';
                     const el = document.getElementById('pattern-info');
                     const parsed = describePattern(currentParsedNotes, currentUseShort);
